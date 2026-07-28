@@ -1,0 +1,414 @@
+"""Unit tests for chat endpoint and service."""
+
+import os
+import sys
+
+# Set up environment variables before any imports
+os.environ['YANDEX_CLOUD_FOLDER'] = 'test-folder-id'
+os.environ['YANDEX_CLOUD_API_KEY'] = 'test-api-key'
+os.environ['YANDEX_CLOUD_MODEL'] = 'deepseek-v4-flash/latest'
+os.environ['APP_ENV'] = 'test'
+os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
+
+# Clear cached imports to reload with new env vars
+for module_name in list(sys.modules.keys()):
+    if 'llm' in module_name or 'services' in module_name or 'api' in module_name:
+        del sys.modules[module_name]
+
+import pytest
+import socket
+from unittest.mock import Mock, patch, MagicMock
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from main import app
+from api.models import ChatRequest, ChatResponse
+from services.chat import ChatService
+from cache.redis_client import CacheClient
+
+
+class TestChatRequest:
+    """Tests for ChatRequest model validation."""
+
+    def test_valid_request(self):
+        """Test creation of a valid request."""
+        request = ChatRequest(dish="Паста Карбонара", people=2)
+        {"text": "assert request.dish == \"Паста Карбонара\""}
+        assert request.people == 2
+        assert request.use_steps is None
+
+    def test_valid_request_with_steps(self):
+        """Test creation of a valid request with steps."""
+        request = ChatRequest(dish="Борщ", people=4, use_steps=True)
+        assert request.dish == "Борщ"
+        assert request.people == 4
+        assert request.use_steps is True
+
+    def test_empty_dish_rejected(self):
+        """Test that empty dish is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(dish="", people=2)
+
+    def test_whitespace_dish_rejected(self):
+        """Test that whitespace-only dish is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(dish="   ", people=2)
+
+    def test_dish_stripped(self):
+        """Test that dish is stripped of whitespace."""
+        request = ChatRequest(dish="  Паста  ", people=2)
+        assert request.dish == "Паста"
+
+    def test_people_min(self):
+        """Test minimum people value."""
+        request = ChatRequest(dish="Салат", people=1)
+        assert request.people == 1
+
+    def test_people_max(self):
+        """Test maximum people value."""
+        request = ChatRequest(dish="Салат", people=1000)
+        assert request.people == 1000
+
+    def test_people_too_low(self):
+        """Test that people < 1 is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(dish="Салат", people=0)
+
+    def test_people_too_high(self):
+        """Test that people > 1000 is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(dish="Салат", people=1001)
+
+    def test_missing_dish_rejected(self):
+        """Test that missing dish is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(people=2)
+
+    def test_missing_people_rejected(self):
+        """Test that missing people is rejected."""
+        with pytest.raises(Exception):
+            ChatRequest(dish="Салат")
+
+
+class TestChatResponse:
+    """Tests for ChatResponse model."""
+
+    def test_valid_response(self):
+        """Test creation of a valid response."""
+        response = ChatResponse(products=["мука", "яйца"])
+        assert response.products == ["мука", "яйца"]
+        assert response.steps is None
+
+    def test_response_with_steps(self):
+        """Test creation of a response with steps."""
+        response = ChatResponse(
+            products=["мука", "яйца"],
+            steps=["смешать", "выпечь"]
+        )
+        assert response.products == ["мука", "яйца"]
+        assert response.steps == ["смешать", "выпечь"]
+
+    def test_response_with_empty_products(self):
+        """Test that empty products list is valid."""
+        response = ChatResponse(products=[])
+        assert response.products == []
+
+    def test_model_dump(self):
+        """Test model serialization."""
+        response = ChatResponse(
+            products=["мука"],
+            steps=["смешать"]
+        )
+        data = response.model_dump()
+        assert data['products'] == ["мука"]
+        assert data['steps'] == ["смешать"]
+
+
+class TestChatService:
+    """Tests for ChatService class."""
+
+    def test_init_default(self):
+        """Test ChatService initialization with defaults."""
+        service = ChatService()
+        assert service.client is not None
+        assert service.cache is not None
+        assert service.cache_ttl == 600
+
+    def test_init_custom(self):
+        """Test ChatService initialization with custom dependencies."""
+        mock_client = Mock()
+        mock_settings = Mock()
+        mock_cache = Mock()
+
+        service = ChatService(client=mock_client, settings=mock_settings, cache_client=mock_cache)
+        assert service.client == mock_client
+        assert service.settings == mock_settings
+        assert service.cache == mock_cache
+
+    def test_generate_cache_key(self):
+        """Test cache key generation."""
+        service = ChatService()
+        request = ChatRequest(dish="Паста", people=2, use_steps=False)
+
+        key = service._generate_cache_key(request, temperature=0.3, max_output_tokens=1500)
+
+        assert key.startswith("chat:")
+        assert len(key) == 37  # "chat:" + 32 hex chars
+
+    def test_generate_cache_key_different_dishes(self):
+        """Test that different dishes produce different keys."""
+        service = ChatService()
+        request1 = ChatRequest(dish="Паста", people=2)
+        request2 = ChatRequest(dish="Борщ", people=2)
+
+        key1 = service._generate_cache_key(request1, 0.3, 1500)
+        key2 = service._generate_cache_key(request2, 0.3, 1500)
+
+        assert key1 != key2
+
+    def test_generate_cache_key_different_people(self):
+        """Test that different people count produces different keys."""
+        service = ChatService()
+        request1 = ChatRequest(dish="Паста", people=2)
+        request2 = ChatRequest(dish="Паста", people=4)
+
+        key1 = service._generate_cache_key(request1, 0.3, 1500)
+        key2 = service._generate_cache_key(request2, 0.3, 1500)
+
+        assert key1 != key2
+
+    def test_generate_cache_key_same_params(self):
+        """Test that same params produce same keys."""
+        service = ChatService()
+        request = ChatRequest(dish="Паста", people=2, use_steps=True)
+
+        key1 = service._generate_cache_key(request, 0.3, 1500)
+        key2 = service._generate_cache_key(request, 0.3, 1500)
+
+        assert key1 == key2
+
+    def test_check_network_available(self):
+        """Test network check when network is available."""
+        service = ChatService()
+
+        with patch('socket.socket') as mock_socket:
+            mock_socket.return_value.connect.return_value = None
+            result = service._check_network(timeout=1)
+            assert result is True
+
+    def test_check_network_unavailable(self):
+        """Test network check when network is unavailable."""
+        service = ChatService()
+
+        with patch('socket.socket') as mock_socket:
+            mock_socket.return_value.connect.side_effect = socket.error()
+            result = service._check_network(timeout=1)
+            assert result is False
+
+    def test_parse_llm_response_json(self):
+        """Test parsing LLM response with products and steps."""
+        service = ChatService()
+        response = '{"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}'
+
+        parsed = service._parse_llm_response(response)
+
+        assert parsed['products'] == ["мука", "яйца"]
+        assert parsed['steps'] == ["смешать", "выпечь"]
+
+    def test_parse_llm_response_products_only(self):
+        """Test parsing LLM response with only products."""
+        service = ChatService()
+        response = '{"ingredients": ["мука", "яйца"]}'
+
+        parsed = service._parse_llm_response(response)
+
+        assert parsed['products'] == ["мука", "яйца"]
+        assert 'steps' not in parsed
+
+    def test_parse_llm_response_russian_keys(self):
+        """Test parsing LLM response with Russian keys."""
+        service = ChatService()
+        response = '{"продукты": ["хлеб", "масло"], "шаги": ["нарезать", "поджарить"]}'
+
+        parsed = service._parse_llm_response(response)
+
+        assert parsed['products'] == ["хлеб", "масло"]
+        assert parsed['steps'] == ["нарезать", "поджарить"]
+
+    def test_parse_llm_response_invalid_json(self):
+        """Test parsing invalid JSON."""
+        service = ChatService()
+        response = 'not json at all'
+
+        parsed = service._parse_llm_response(response)
+
+        assert parsed == {}
+
+    def test_create_fallback_response(self):
+        """Test fallback response creation."""
+        service = ChatService()
+
+        fallback = service._create_fallback_response("Network error")
+
+        assert isinstance(fallback, ChatResponse)
+        assert fallback.products == []
+        assert fallback.steps is None
+
+    def test_process_request_cache_hit(self):
+        """Test processing request with cache hit."""
+        service = ChatService()
+        request = ChatRequest(dish="Паста", people=2)
+
+        cached_data = {"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}
+
+        with patch.object(service.cache, 'get', return_value=cached_data) as mock_get:
+            response = service.process_request(request)
+
+            assert isinstance(response, ChatResponse)
+            assert response.products == ["мука", "яйца"]
+            assert response.steps == ["смешать", "выпечь"]
+            mock_get.assert_called_once()
+
+
+class TestChatEndpoint:
+    """Tests for chat endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        """Create test client."""
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_chat_endpoint_success(self, client):
+        """Test successful chat endpoint request."""
+        request_data = {"dish": "Паста Карбонара", "people": 2}
+
+        mock_response = ChatResponse(
+            products=["мука", "яйца", "бекон"],
+            steps=["отварить пасту", "обжарить бекон", "смешать"],
+        )
+
+        with patch('services.chat.chat_service.process_request', return_value=mock_response):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data['products'] == ["мука", "яйца", "бекон"]
+            assert data['steps'] == ["отварить пасту", "обжарить бекон", "смешать"]
+
+    def test_chat_endpoint_success_with_steps_false(self, client):
+        """Test chat endpoint with steps disabled."""
+        request_data = {"dish": "Салат", "people": 1, "use_steps": False}
+
+        mock_response = ChatResponse(
+            products=["огурцы", "помидоры"],
+            steps=None,
+        )
+
+        with patch('services.chat.chat_service.process_request', return_value=mock_response):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data['products'] == ["огурцы", "помидоры"]
+            assert data['steps'] is None
+
+    def test_chat_endpoint_empty_dish(self, client):
+        """Test chat endpoint with empty dish."""
+        request_data = {"dish": "", "people": 2}
+
+        response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 422
+
+    def test_chat_endpoint_missing_dish(self, client):
+        """Test chat endpoint with missing dish."""
+        request_data = {"people": 2}
+
+        response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 422
+
+    def test_chat_endpoint_missing_people(self, client):
+        """Test chat endpoint with missing people."""
+        request_data = {"dish": "Салат"}
+
+        response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 422
+
+    def test_chat_endpoint_people_too_low(self, client):
+        """Test chat endpoint with people < 1."""
+        request_data = {"dish": "Салат", "people": 0}
+
+        response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 422
+
+    def test_chat_endpoint_people_too_high(self, client):
+        """Test chat endpoint with people > 1000."""
+        request_data = {"dish": "Салат", "people": 1001}
+
+        response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 422
+
+    def test_chat_endpoint_llm_error(self, client):
+        """Test chat endpoint with LLM error."""
+        request_data = {"dish": "Паста", "people": 2}
+
+        with patch('services.chat.chat_service.process_request', side_effect=Exception("LLM Error")):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 500
+            data = response.json()
+            assert "Internal server error" in data['detail']
+
+
+class TestCacheClient:
+    """Tests for CacheClient class."""
+
+    def test_get_nonexistent_key(self):
+        """Test getting nonexistent key."""
+        cache = CacheClient()
+
+        result = cache.get("nonexistent_key")
+
+        assert result is None
+
+    def test_set_and_get(self):
+        """Test setting and getting value."""
+        cache = CacheClient()
+
+        cache.set("test_key", {"products": ["мука"], "steps": ["смешать"]}, ttl=60)
+        result = cache.get("test_key")
+
+        assert result is not None
+        assert result['products'] == ["мука"]
+        assert result['steps'] == ["смешать"]
+
+    def test_exists_key(self):
+        """Test checking if key exists."""
+        cache = CacheClient()
+
+        cache.set("exists_key", {"test": "value"})
+        result = cache.exists("exists_key")
+
+        assert result is True
+
+    def test_exists_nonexistent_key(self):
+        """Test checking if nonexistent key exists."""
+        cache = CacheClient()
+
+        result = cache.exists("nonexistent_key")
+
+        assert result is False
+
+    def test_delete_key(self):
+        """Test deleting key."""
+        cache = CacheClient()
+
+        cache.set("delete_key", {"test": "value"})
+        cache.delete("delete_key")
+        result = cache.exists("delete_key")
+
+        assert result is False
