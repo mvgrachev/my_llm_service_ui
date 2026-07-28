@@ -1,5 +1,4 @@
 app.log
 server.log
 streamlit.log
-main.log
 .env
