@@ -14,6 +14,10 @@ import socket
 logger = logging.getLogger('llm_service.chat')
 
 
+class UnauthorizedError(Exception):
+    """Raised when LLM API key is invalid or expired."""
+
+
 class ChatService:
     """Service for handling chat interactions with LLM."""
 
