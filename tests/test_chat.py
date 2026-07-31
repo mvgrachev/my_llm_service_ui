@@ -33,7 +33,7 @@ class TestChatRequest:
     def test_valid_request(self):
         """Test creation of a valid request."""
         request = ChatRequest(dish="Паста Карбонара", people=2)
-        {"text": "assert request.dish == \"Паста Карбонара\""}
+        assert request.dish == "Паста Карбонара"
         assert request.people == 2
         assert request.use_steps is None
 

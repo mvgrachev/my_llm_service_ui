@@ -7,6 +7,7 @@ import json
 import hashlib
 import time
 import logging
+import os
 import socket
 
 
@@ -20,7 +21,6 @@ class ChatService:
         self.client = client or deepseek_client
         self.settings = settings or settings
         self.cache = cache_client or cache
-        self.cache_ttl = 600  # 10 minutes in seconds
 
     def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int) -> str:
         key_data = {
@@ -33,7 +33,8 @@ class ChatService:
         key_str = json.dumps(key_data, sort_keys=True)
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
 
-    def _check_network(self, timeout: int = 5) -> bool:
+    def _check_network(self, timeout: Optional[int] = None) -> bool:
+        timeout = timeout if timeout is not None else int(os.getenv("NETWORK_CHECK_TIMEOUT", "5"))
         try:
             socket.setdefaulttimeout(timeout)
             socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
@@ -78,8 +79,8 @@ class ChatService:
     def process_request(
         self,
         request: ChatRequest,
-        temperature: float = 0.3,
-        max_output_tokens: int = 1500,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
     ) -> ChatResponse:
         """
@@ -89,13 +90,18 @@ class ChatService:
 
         Args:
             request: Validated ChatRequest from API layer
-            temperature: Temperature for generation (0.0-1.0)
+            temperature: Temperature for generation (from env DEEPSEEK_TEMPERATURE if None)
             max_output_tokens: Maximum output tokens
             system_prompt: Custom system prompt (uses default if None)
 
         Returns:
             ChatResponse with products and optional steps
         """
+        if temperature is None:
+            temperature = self.settings.deepseek_temperature if self.settings else float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
+
+        cache_ttl = self.settings.deepseek_cache_ttl if self.settings else int(os.getenv("DEEPSEEK_CACHE_TTL", "600"))
+
         logger.info(
             f"[REQUEST] Time: {time.strftime('%Y-%m-%d %H:%M:%S')}, "
             f"Dish: {request.dish}, People: {request.people}, Use steps: {request.use_steps}"
@@ -138,7 +144,7 @@ class ChatService:
                 self.cache.set(
                     cache_key,
                     response.model_dump(),
-                    ttl=self.cache_ttl,
+                    ttl=cache_ttl,
                 )
 
                 logger.info(

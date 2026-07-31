@@ -18,6 +18,9 @@ class Settings:
         self.yandex_cloud_api_key: Optional[str] = os.getenv("YANDEX_CLOUD_API_KEY")
         self.yandex_cloud_folder: Optional[str] = os.getenv("YANDEX_CLOUD_FOLDER")
         self.yandex_cloud_model: Optional[str] = os.getenv("YANDEX_CLOUD_MODEL")
+        self.deepseek_temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
+        self.deepseek_cache_ttl: int = int(os.getenv("DEEPSEEK_CACHE_TTL", "600"))
+        self.deepseek_max_output_tokens: int = int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "1500"))
 
         # Redis Settings
         self.redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
