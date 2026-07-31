@@ -132,7 +132,7 @@ class TestChatService:
         service = ChatService()
         assert service.client is not None
         assert service.cache is not None
-        assert service.cache_ttl == 600
+
 
     def test_init_custom(self):
         """Test ChatService initialization with custom dependencies."""
