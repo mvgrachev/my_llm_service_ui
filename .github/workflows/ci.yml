@@ -1,0 +1,238 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  REDIS_URL: "redis://localhost:6379/0"
+
+jobs:
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,__pycache__,.git,.github
+
+  test:
+    name: Tests (test_chat.py)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest (test_chat.py)
+        run: |
+          pytest tests/test_chat.py -v --tb=short
+
+  streamlit:
+    name: Streamlit smoke test
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      YANDEX_CLOUD_FOLDER: "test-folder-id"
+      YANDEX_CLOUD_API_KEY: "test-api-key"
+      YANDEX_CLOUD_MODEL: "deepseek-v4-flash/latest"
+      APP_ENV: "test"
+      DEEPSEEK_TIMEOUT: "30"
+      REDIS_URL: "redis://localhost:6379/0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install streamlit httpx
+
+      - name: Mock LLM client to avoid real API calls
+        run: |
+          cat > llm/__init__.py << 'PYEOF'
+          """Mock LLM client for CI."""
+          from unittest.mock import MagicMock
+          client = MagicMock()
+          client.generate.return_value = '{"products": ["test"], "steps": ["step1"]}'
+          PYEOF
+
+      - name: Start FastAPI server in background
+        run: |
+          python main.py &
+          SERVER_PID=$!
+          echo "FastAPI PID: $SERVER_PID"
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+
+          # Wait for server to be ready (up to 30s)
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+              echo "FastAPI is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "FastAPI failed to start within 30s"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Start Streamlit in CI headless mode
+        run: |
+          streamlit run app.py --server.headless=true --server.port=8501 --server.baseUrlPath=/ &
+          STREAMLIT_PID=$!
+          echo "Streamlit PID: $STREAMLIT_PID"
+          echo "STREAMLIT_PID=$STREAMLIT_PID" >> $GITHUB_ENV
+
+          # Wait for Streamlit to be ready (up to 30s)
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8501/healthz > /dev/null 2>&1; then
+              echo "Streamlit is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Streamlit failed to start within 30s"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Verify Streamlit UI is accessible
+        run: |
+          # Check Streamlit main page
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8501/)
+          echo "Streamlit main page HTTP code: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Streamlit main page returned $HTTP_CODE instead of 200"
+            exit 1
+          fi
+
+          # Check Streamlit health endpoint
+          HEALTH=$(curl -s http://localhost:8501/healthz)
+          echo "Streamlit health: $HEALTH"
+
+          # Check FastAPI is still running
+          API_RESPONSE=$(curl -s http://localhost:8000/health)
+          echo "FastAPI health: $API_RESPONSE"
+
+      - name: Stop Streamlit and FastAPI servers
+        if: always()
+        run: |
+          # Stop Streamlit
+          if command -v streamlit &> /dev/null && [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
+            echo "Stopping Streamlit (PID: $STREAMLIT_PID)..."
+            streamlit stop --server.port 8501 || true
+            kill "$STREAMLIT_PID" 2>/dev/null || true
+          fi
+
+          # Stop FastAPI
+          if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+            echo "Stopping FastAPI (PID: $SERVER_PID)..."
+            kill "$SERVER_PID" 2>/dev/null || true
+          fi
+
+          # Wait for processes to terminate
+          sleep 2
+
+          # Force kill if still running
+          if [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
+            echo "Force killing Streamlit..."
+            kill -9 "$STREAMLIT_PID" 2>/dev/null || true
+          fi
+          if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+            echo "Force killing FastAPI..."
+            kill -9 "$SERVER_PID" 2>/dev/null || true
+          fi
+
+          echo "All servers stopped."
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamlit-logs
+          path: |
+            *.log
+            streamlit.log
+
+  build:
+    name: Build artifacts
+    runs-on: ubuntu-latest
+    needs: [lint, test, streamlit]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      - name: Package project into dist/
+        run: |
+          cp -r api config llm services cache main.py app.py __main__.py README.md dist/
+          cp requirements.txt dist/
+          tar czf dist/package.tar.gz -C dist .
+
+      - name: Upload dist/ as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-package
+          path: dist/
+          retention-days: 7
