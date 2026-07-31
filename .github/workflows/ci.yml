@@ -221,14 +221,18 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create dist directory
-        run: mkdir -p dist
+      - name: Create staging directory
+        run: mkdir -p staging
 
-      - name: Package project into dist/
+      - name: Copy project files to staging
         run: |
-          cp -r api config llm services cache main.py app.py __main__.py README.md dist/
-          cp requirements.txt dist/
-          tar czf dist/package.tar.gz -C dist .
+          cp -r api config llm services cache main.py app.py __main__.py README.md staging/
+          cp requirements.txt staging/
+
+      - name: Create dist directory and tarball
+        run: |
+          mkdir -p dist
+          tar czf dist/package.tar.gz -C staging .
 
       - name: Upload dist/ as artifact
         uses: actions/upload-artifact@v4
