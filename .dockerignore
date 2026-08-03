@@ -1,0 +1,58 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment and secrets
+.env
+.env.*
+
+# Logs
+*.log
+app.log
+fastapi.log
+streamlit.log
+server.log
+
+{"text": "# Cache and temporary files\n.pytest_cache/\n.coverage\nhtmlcov/"}
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (not needed inside container)
+docker-compose.yml
+Dockerfile
+Dockerfile.streamlit
+.dockerignore
+
+# CI/CD
+.github/
+.gigacode/
+
+# Documentation
+README.md
+test_report.md
