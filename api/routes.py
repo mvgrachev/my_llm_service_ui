@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Union
 from api.models import ChatRequest, ChatResponse, AuthError
 from services import chat_service
+from services.chat import UnauthorizedError
 import logging
 
 logger = logging.getLogger('llm_service.routes')
@@ -46,6 +47,9 @@ async def chat_endpoint(request: ChatRequest):
     try:
         response = chat_service.process_request(request)
         return response
+    except UnauthorizedError:
+        logger.error(f"Authentication error in chat endpoint: {AUTH_ERROR_MSG}")
+        return AuthError(message=AUTH_ERROR_MSG)
     except Exception as e:
         error_str = str(e)
         logger.error(f"Error in chat endpoint: {error_str}")

@@ -11,12 +11,12 @@ logger = logging.getLogger('llm_service.deepseek')
 # Default prompt for recipe generation
 DEFAULT_PROMPT = (
     "Пользователь пишет блюдо, количество персон и опционально указывает нужны ли в ответе шаги приготовления."
-    "В результате получаем список продуктов и опционально шаги приготовления (не более 5)."
+    "В результате получаем список продуктов с указанием веса в граммах и опционально шаги приготовления (не более 5)."
     "\n\nФормат ответа: JSON. "
     "Обязательные поля: products (список строк — каждый продукт отдельной строкой в массиве), "
     "steps (список строк — каждый шаг отдельной строкой в массиве, опционально). "
     "Без вступления, без лишних полей, только JSON."
-    '\nПример: {"products": ["Мясо","Картофель"], "steps": ["Разморозить", "Пожарить"]}'
+    '\nПример: {"products": ["Мясо - 300 граммов","Картофель - 200 граммов"], "steps": ["Разморозить", "Пожарить"]}'
 )
 
 # Default timeout read from environment or fallback to 30
@@ -142,7 +142,7 @@ class DeepSeekClient:
             return result
         except Exception as e:
             logger.error(f"[DEEPSEEK] Error during generation: {str(e)}")
-            raise Exception(f"LLM generation error: {str(e)}")
+            raise
 
 
 # Default instance for convenience

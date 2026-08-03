@@ -1,5 +1,6 @@
 """Redis cache client for LLM Service."""
 import json
+import os
 import hashlib
 import logging
 from typing import Optional, Any
@@ -114,5 +115,26 @@ class CacheClient:
             return False
 
 
-# Default cache instance
-cache = CacheClient()
+# Default cache instance — created lazily to avoid connection errors on import
+_cache_instance = None
+
+
+def get_cache():
+    """Lazily create and return the default cache instance."""
+    global _cache_instance
+    if _cache_instance is None:
+        _cache_instance = CacheClient(url=os.getenv("REDIS_URL"))
+    return _cache_instance
+
+
+class _LazyCache:
+    """Proxy that forwards attribute access to the lazily-created cache."""
+
+    def __getattr__(self, name):
+        return getattr(get_cache(), name)
+
+    def __bool__(self):
+        return True
+
+
+cache = _LazyCache()

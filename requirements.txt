@@ -12,6 +12,9 @@ langchain>=0.0.1
 # Cache
 redis>=5.0.0
 
+# HTTP client
+requests>=2.31.0
+
 # Configuration
 python-dotenv>=1.0.0
 

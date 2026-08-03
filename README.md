@@ -80,6 +80,50 @@ curl http://localhost:8501
 
 > Streamlit UI обращается к FastAPI на `http://localhost:8000/chat`, поэтому сначала нужно запустить backend.
 
+## Запуск через Docker Compose
+
+Проект содержит `docker-compose.yml`, который поднимает три сервиса:
+
+- **fastapi** — бэкенд (FastAPI) на порту `8000`
+- **streamlit** — веб-интерфейс (Streamlit) на порту `8501`
+- **redis** — кэш на порту `6379`
+
+### Требования
+
+- Docker
+- Docker Compose (v2)
+
+### Запуск
+
+```bash
+# Собрать образы и запустить все сервисы в фоне
+docker compose up --build -d
+
+# Проверить статус
+docker compose ps
+
+# Посмотреть логи
+docker compose logs -f
+```
+
+### Остановка
+
+```bash
+# Остановить и удалить контейнеры
+docker compose down
+
+# С удалением томов и образов
+docker compose down -v
+```
+
+### Доступ
+
+| Сервис | Адрес | Описание |
+|--------|-------|----------|
+| FastAPI | `http://localhost:8000` | API (Swagger: `http://localhost:8000/docs`) |
+| Streamlit UI | `http://localhost:8501` | Веб-интерфейс |
+| Redis | `localhost:6379` | Кэш |
+
 ## Примеры API-запросов через curl
 
 Отправка запроса к роуту `/chat`:
