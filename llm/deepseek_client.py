@@ -1,10 +1,10 @@
 """DeepSeek client for Yandex Cloud."""
-import os
 import openai
 import threading
 import queue
 import logging
 from typing import Optional
+from config import settings
 
 logger = logging.getLogger('llm_service.deepseek')
 
@@ -18,9 +18,6 @@ DEFAULT_PROMPT = (
     "Без вступления, без лишних полей, только JSON."
     '\nПример: {"products": ["Мясо - 300 граммов","Картофель - 200 граммов"], "steps": ["Разморозить", "Пожарить"]}'
 )
-
-# Default timeout read from environment or fallback to 30
-_DEFAULT_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
 
 def with_timeout(timeout: int):
@@ -73,18 +70,18 @@ class DeepSeekClient:
         Initialize DeepSeek client.
 
         Args:
-            folder_id: Yandex Cloud folder ID (from env YANDEX_CLOUD_FOLDER)
-            api_key: Yandex Cloud API key (from env YANDEX_CLOUD_API_KEY)
-            model: Model name (from env YANDEX_CLOUD_MODEL)
-            prompt: System prompt for recipe generation (from env PROMPT or DEFAULT_PROMPT)
-            timeout: Request timeout in seconds (from env DEEPSEEK_TIMEOUT, default 30)
+            folder_id: Yandex Cloud folder ID (from settings.yandex_cloud_folder)
+            api_key: Yandex Cloud API key (from settings.yandex_cloud_api_key)
+            model: Model name (from settings.yandex_cloud_model)
+            prompt: System prompt for recipe generation (from settings.system_prompt or DEFAULT_PROMPT)
+            timeout: Request timeout in seconds (from settings.deepseek_timeout, default 30)
         """
-        self.base_url = os.getenv("YANDEX_CLOUD_BASE_URL")
-        self.folder_id = folder_id or os.getenv("YANDEX_CLOUD_FOLDER")
-        self.api_key = api_key or os.getenv("YANDEX_CLOUD_API_KEY")
-        self.model = model or os.getenv("YANDEX_CLOUD_MODEL", "deepseek-v4-flash/latest")
-        self.prompt = prompt or os.getenv("PROMPT", DEFAULT_PROMPT)
-        self.timeout = timeout if timeout is not None else _DEFAULT_TIMEOUT
+        self.base_url = settings.yandex_cloud_base_url
+        self.folder_id = folder_id or settings.yandex_cloud_folder
+        self.api_key = api_key or settings.yandex_cloud_api_key
+        self.model = model or settings.yandex_cloud_model
+        self.prompt = prompt or settings.system_prompt or DEFAULT_PROMPT
+        self.timeout = timeout if timeout is not None else settings.deepseek_timeout
 
         if not self.folder_id:
             raise ValueError("YANDEX_CLOUD_FOLDER environment variable is required")
@@ -103,7 +100,7 @@ class DeepSeekClient:
 
         Args:
             input_text: Input text for the model
-            temperature: Temperature for generation (from env DEEPSEEK_TEMPERATURE if None)
+            temperature: Temperature for generation (from settings.deepseek_temperature if None)
             instructions: System instructions (uses self.prompt if None)
             max_output_tokens: Maximum output tokens
 
@@ -117,7 +114,7 @@ class DeepSeekClient:
         prompt_text = instructions if instructions is not None else self.prompt
 
         if temperature is None:
-            temperature = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
+            temperature = settings.deepseek_temperature
 
         logger.info(f"[DEEPSEEK] Generating response for input: {input_text[:100]}...")
         logger.info(f"[DEEPSEEK] Prompt: {prompt_text[:200]}...")

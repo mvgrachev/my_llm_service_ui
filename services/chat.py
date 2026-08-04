@@ -7,7 +7,6 @@ import json
 import hashlib
 import time
 import logging
-import os
 import socket
 
 
@@ -21,9 +20,9 @@ class UnauthorizedError(Exception):
 class ChatService:
     """Service for handling chat interactions with LLM."""
 
-    def __init__(self, client=None, settings=None, cache_client=None):
+    def __init__(self, client=None, settings_obj=None, cache_client=None):
         self.client = client or deepseek_client
-        self.settings = settings or settings
+        self.settings = settings_obj or settings
         self.cache = cache_client or cache
 
     def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int) -> str:
@@ -38,7 +37,7 @@ class ChatService:
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
 
     def _check_network(self, timeout: Optional[int] = None) -> bool:
-        timeout = timeout if timeout is not None else int(os.getenv("NETWORK_CHECK_TIMEOUT", "5"))
+        timeout = timeout if timeout is not None else self.settings.network_check_timeout
         try:
             socket.setdefaulttimeout(timeout)
             socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
@@ -94,17 +93,17 @@ class ChatService:
 
         Args:
             request: Validated ChatRequest from API layer
-            temperature: Temperature for generation (from env DEEPSEEK_TEMPERATURE if None)
+            temperature: Temperature for generation (from settings if None)
             max_output_tokens: Maximum output tokens
-            system_prompt: Custom system prompt (uses default if None)
+            system_prompt: Custom system prompt (uses default from settings if None)
 
         Returns:
             ChatResponse with products and optional steps
         """
         if temperature is None:
-            temperature = self.settings.deepseek_temperature if self.settings else float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
+            temperature = self.settings.deepseek_temperature
 
-        cache_ttl = self.settings.deepseek_cache_ttl if self.settings else int(os.getenv("DEEPSEEK_CACHE_TTL", "600"))
+        cache_ttl = self.settings.deepseek_cache_ttl
 
         logger.info(
             f"[REQUEST] Time: {time.strftime('%Y-%m-%d %H:%M:%S')}, "

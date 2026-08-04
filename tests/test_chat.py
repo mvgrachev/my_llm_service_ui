@@ -140,7 +140,7 @@ class TestChatService:
         mock_settings = Mock()
         mock_cache = Mock()
 
-        service = ChatService(client=mock_client, settings=mock_settings, cache_client=mock_cache)
+        service = ChatService(client=mock_client, settings_obj=mock_settings, cache_client=mock_cache)
         assert service.client == mock_client
         assert service.settings == mock_settings
         assert service.cache == mock_cache

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Streamlit UI for LLM Service."""
 
-import os
-
 import streamlit as st
 import requests
+from config import settings
 
 # Page config
 st.set_page_config(
@@ -13,8 +12,8 @@ st.set_page_config(
     layout="centered",
 )
 
-# Backend API URL — используется переменная окружения для Docker, иначе localhost
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
+# Backend API URL — uses settings.fastapi_url
+FASTAPI_URL = settings.fastapi_url
 API_URL = f"{FASTAPI_URL}/chat"
 
 st.title("🍳 Подбор продуктов и рецептов")

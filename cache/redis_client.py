@@ -1,10 +1,10 @@
 """Redis cache client for LLM Service."""
 import json
-import os
 import hashlib
 import logging
 from typing import Optional, Any
 from datetime import timedelta
+from config import settings
 
 logger = logging.getLogger('llm_service.cache')
 
@@ -123,7 +123,7 @@ def get_cache():
     """Lazily create and return the default cache instance."""
     global _cache_instance
     if _cache_instance is None:
-        _cache_instance = CacheClient(url=os.getenv("REDIS_URL"))
+        _cache_instance = CacheClient(url=settings.redis_url)
     return _cache_instance
 
 
