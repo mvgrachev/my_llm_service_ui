@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Import settings after dotenv is loaded
+from config import settings
+
 # Configure logging with file and console output
 log_format = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -27,7 +30,7 @@ console_handler.setFormatter(log_format)
 logger.addHandler(console_handler)
 
 # File handler with rotation
-log_file = os.getenv('LOG_FILE', 'app.log')
+log_file = settings.log_file
 file_handler = RotatingFileHandler(
     log_file,
     maxBytes=10 * 1024 * 1024,  # 10 MB
@@ -66,8 +69,10 @@ async def health_check():
     return {"status": "healthy"}
 
 
-async def run_server(host: str = "0.0.0.0", port: int = 8000):
+async def run_server(host: str = None, port: int = None):
     """Run the FastAPI server"""
+    host = host or settings.app_host
+    port = port or settings.app_port
     logger.info(f"Starting LLM Service on {host}:{port}...")
     import uvicorn
     uvicorn.run(app, host=host, port=port)
@@ -81,4 +86,4 @@ async def main():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=settings.app_host, port=settings.app_port)
