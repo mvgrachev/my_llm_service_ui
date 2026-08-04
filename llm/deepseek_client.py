@@ -1,7 +1,9 @@
 """DeepSeek client for Yandex Cloud."""
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import openai
-import threading
-import queue
 import logging
 from typing import Optional
 from config import settings
@@ -18,41 +20,6 @@ DEFAULT_PROMPT = (
     "Без вступления, без лишних полей, только JSON."
     '\nПример: {"products": ["Мясо - 300 граммов","Картофель - 200 граммов"], "steps": ["Разморозить", "Пожарить"]}'
 )
-
-
-def with_timeout(timeout: int):
-    """
-    Decorator for adding timeout to LLM calls.
-
-    Args:
-        timeout: Timeout in seconds
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            result_queue = queue.Queue()
-            exception_queue = queue.Queue()
-
-            def target():
-                try:
-                    result = func(*args, **kwargs)
-                    result_queue.put(result)
-                except Exception as e:
-                    exception_queue.put(e)
-
-            thread = threading.Thread(target=target, daemon=True)
-            thread.start()
-            thread.join(timeout=timeout)
-
-            if thread.is_alive():
-                raise TimeoutError(f"LLM call timed out after {timeout} seconds")
-
-            if not exception_queue.empty():
-                raise exception_queue.get()
-
-            return result_queue.get()
-
-        return wrapper
-    return decorator
 
 
 class DeepSeekClient:
@@ -120,10 +87,16 @@ class DeepSeekClient:
         logger.info(f"[DEEPSEEK] Prompt: {prompt_text[:200]}...")
 
         try:
+            # Pass timeout directly to the OpenAI client constructor.
+            # The SDK (v1+) uses httpx under the hood and enforces this
+            # timeout at the HTTP level — the actual network request is
+            # cancelled when the time expires, unlike the old threading
+            # approach which only interrupted the waiting thread.
             client = openai.OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                project=self.folder_id
+                project=self.folder_id,
+                timeout=self.timeout,
             )
 
             response = client.responses.create(
@@ -131,12 +104,18 @@ class DeepSeekClient:
                 temperature=temperature,
                 instructions=prompt_text,
                 input=input_text,
-                max_output_tokens=max_output_tokens
+                max_output_tokens=max_output_tokens,
             )
 
             result = response.output_text
             logger.info(f"[DEEPSEEK] Response received: {result[:200]}...")
             return result
+        except openai.APITimeoutError as e:
+            logger.error(f"[DEEPSEEK] Request timed out after {self.timeout} seconds: {str(e)}")
+            raise TimeoutError(f"LLM call timed out after {self.timeout} seconds") from e
+        except openai.APIConnectionError as e:
+            logger.error(f"[DEEPSEEK] Connection error: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"[DEEPSEEK] Error during generation: {str(e)}")
             raise
