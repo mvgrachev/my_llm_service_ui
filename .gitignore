@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+api/__pycache__/
 cache/__pycache__/
 config/__pycache__/
 llm/__pycache__/
