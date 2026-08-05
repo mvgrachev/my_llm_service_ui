@@ -49,7 +49,9 @@ class DeepSeekClient:
         self.model = model or settings.yandex_cloud_model
         self.prompt = prompt or settings.system_prompt or DEFAULT_PROMPT
         self.timeout = timeout if timeout is not None else settings.deepseek_timeout
-
+        
+        if not self.base_url:
+            raise ValueError("YANDEX_CLOUD_BASE_URL environment variable is required")
         if not self.folder_id:
             raise ValueError("YANDEX_CLOUD_FOLDER environment variable is required")
         if not self.api_key:
@@ -82,6 +84,9 @@ class DeepSeekClient:
 
         if temperature is None:
             temperature = settings.deepseek_temperature
+        
+        if max_output_tokens is None:
+            max_output_tokens = settings.deepseek_max_output_tokens
 
         logger.info(f"[DEEPSEEK] Generating response for input: {input_text[:100]}...")
         logger.info(f"[DEEPSEEK] Prompt: {prompt_text[:200]}...")
