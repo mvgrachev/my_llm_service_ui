@@ -26,25 +26,18 @@ class ChatService:
         self.settings = settings_obj or settings
         self.cache = cache_client or cache
 
-    def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int) -> str:
+    def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int, system_prompt: str, model: str) -> str:
         key_data = {
             "dish": request.dish,
             "people": request.people,
             "use_steps": request.use_steps,
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
+            "system_prompt": system_prompt,
+            "model_name" : model
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
-
-    def _check_network(self, timeout: Optional[int] = None) -> bool:
-        timeout = timeout if timeout is not None else self.settings.network_check_timeout
-        try:
-            socket.setdefaulttimeout(timeout)
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
-            return True
-        except socket.error:
-            return False
 
     def _parse_llm_response(self, response: str) -> dict:
         """Parse LLM response and extract products and steps fields."""
@@ -107,7 +100,7 @@ class ChatService:
             f"Dish: {request.dish}, People: {request.people}, Use steps: {request.use_steps}"
         )
 
-        cache_key = self._generate_cache_key(request, temperature, max_output_tokens)
+        cache_key = self._generate_cache_key(request, temperature, max_output_tokens, system_prompt, self.settings.yandex_cloud_model)
 
         cached_response = self.cache.get(cache_key)
         if cached_response:

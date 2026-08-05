@@ -36,7 +36,8 @@ class CacheClient:
             self.redis_available = True
         except Exception as e:
             logger.error(f"Redis connection failed: {str(e)}")
-            raise
+            self.redis_available = False
+            self._cache = None
     
     def get(self, key: str) -> Optional[Any]:
         """
@@ -128,13 +129,45 @@ def get_cache():
 
 
 class _LazyCache:
-    """Proxy that forwards attribute access to the lazily-created cache."""
+    """Proxy that forwards attribute access to the lazily-created cache.
+    
+    If Redis is unavailable, get() returns None (cache miss),
+    set()/delete()/exists() return False — the application continues
+    to work without caching.
+    """
 
     def __getattr__(self, name):
         return getattr(get_cache(), name)
 
-    def __bool__(self):
-        return True
+    def get(self, key: str):
+        """Get from cache. Returns None if Redis is unavailable."""
+        client = get_cache()
+        if not client.redis_available:
+            logger.info(f"[CACHE Redis] Unavailable — cache miss for key: {key[:50]}...")
+            return None
+        return client.get(key)
+
+    def set(self, key: str, value: Any, ttl: int = 600) -> bool:
+        """Set in cache. Returns False if Redis is unavailable."""
+        client = get_cache()
+        if not client.redis_available:
+            logger.debug(f"[CACHE Redis] Unavailable — skipping set for key: {key[:50]}...")
+            return False
+        return client.set(key, value, ttl)
+
+    def delete(self, key: str) -> bool:
+        """Delete from cache. Returns False if Redis is unavailable."""
+        client = get_cache()
+        if not client.redis_available:
+            return False
+        return client.delete(key)
+
+    def exists(self, key: str) -> bool:
+        """Check if key exists. Returns False if Redis is unavailable."""
+        client = get_cache()
+        if not client.redis_available:
+            return False
+        return client.exists(key)
 
 
 cache = _LazyCache()

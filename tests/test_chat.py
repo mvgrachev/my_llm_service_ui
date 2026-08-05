@@ -150,7 +150,7 @@ class TestChatService:
         service = ChatService()
         request = ChatRequest(dish="Паста", people=2, use_steps=False)
 
-        key = service._generate_cache_key(request, temperature=0.3, max_output_tokens=1500)
+        key = service._generate_cache_key(request, temperature=0.3, max_output_tokens=1500, system_prompt="System prompt", model="Model")
 
         assert key.startswith("chat:")
         assert len(key) == 37  # "chat:" + 32 hex chars
@@ -161,8 +161,8 @@ class TestChatService:
         request1 = ChatRequest(dish="Паста", people=2)
         request2 = ChatRequest(dish="Борщ", people=2)
 
-        key1 = service._generate_cache_key(request1, 0.3, 1500)
-        key2 = service._generate_cache_key(request2, 0.3, 1500)
+        key1 = service._generate_cache_key(request1, 0.3, 1500, "System prompt", "Model")
+        key2 = service._generate_cache_key(request2, 0.3, 1500, "System prompt", "Model")
 
         assert key1 != key2
 
@@ -172,8 +172,8 @@ class TestChatService:
         request1 = ChatRequest(dish="Паста", people=2)
         request2 = ChatRequest(dish="Паста", people=4)
 
-        key1 = service._generate_cache_key(request1, 0.3, 1500)
-        key2 = service._generate_cache_key(request2, 0.3, 1500)
+        key1 = service._generate_cache_key(request1, 0.3, 1500, "System prompt", "Model")
+        key2 = service._generate_cache_key(request2, 0.3, 1500, "System prompt", "Model")
 
         assert key1 != key2
 
@@ -182,28 +182,10 @@ class TestChatService:
         service = ChatService()
         request = ChatRequest(dish="Паста", people=2, use_steps=True)
 
-        key1 = service._generate_cache_key(request, 0.3, 1500)
-        key2 = service._generate_cache_key(request, 0.3, 1500)
+        key1 = service._generate_cache_key(request, 0.3, 1500, "System prompt", "Model")
+        key2 = service._generate_cache_key(request, 0.3, 1500, "System prompt", "Model")
 
         assert key1 == key2
-
-    def test_check_network_available(self):
-        """Test network check when network is available."""
-        service = ChatService()
-
-        with patch('socket.socket') as mock_socket:
-            mock_socket.return_value.connect.return_value = None
-            result = service._check_network(timeout=1)
-            assert result is True
-
-    def test_check_network_unavailable(self):
-        """Test network check when network is unavailable."""
-        service = ChatService()
-
-        with patch('socket.socket') as mock_socket:
-            mock_socket.return_value.connect.side_effect = socket.error()
-            result = service._check_network(timeout=1)
-            assert result is False
 
     def test_parse_llm_response_json(self):
         """Test parsing LLM response with products and steps."""
@@ -361,7 +343,7 @@ class TestChatEndpoint:
 
             assert response.status_code == 500
             data = response.json()
-            assert "Internal server error" in data['detail']
+            assert "Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку." in data['detail']
 
 
 class TestCacheClient:
