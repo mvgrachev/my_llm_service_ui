@@ -131,7 +131,7 @@ docker compose down -v
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"dish": "Борщ","people":2,use_steps:true}'
+  -d '{"dish": "Борщ","people":2,"use_steps":true}'
 ```
 
 Ожидаемый ответ:

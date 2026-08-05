@@ -8,6 +8,7 @@ import hashlib
 import time
 import logging
 import socket
+import openai
 
 
 logger = logging.getLogger('llm_service.chat')
@@ -75,10 +76,6 @@ class ChatService:
     def _create_error_response(self, error_message: str) -> ChatResponse:
         raise UnauthorizedError(error_message)
 
-    def _is_unauthorized_error(self, error_str: str) -> bool:
-        """Check if the error is due to an invalid/unauthenticated API key."""
-        return 'unauthenticated' in error_str or 'unauthorized' in error_str or 'invalid api key' in error_str
-
     def process_request(
         self,
         request: ChatRequest,
@@ -120,9 +117,9 @@ class ChatService:
         logger.info(f"[CACHE MISS] Key: {cache_key}")
 
         max_retries = 3
-        wait_times = [1, 3, 5]
+        wait_times = [1, 3]
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries):
             try:
                 logger.info(f"[PROMPT] Temperature: {temperature}, Max tokens: {max_output_tokens}")
                 input_text = f"Блюдо: {request.dish}. Количество персон: {request.people}."
@@ -159,33 +156,29 @@ class ChatService:
                 return response
 
             except Exception as e:
-                error_str = str(e).lower()
-                logger.error(f"[ERROR] Attempt {attempt + 1}/{max_retries}: {error_str}")
+                logger.error(f"[ERROR] Attempt {attempt + 1}/{max_retries}: {e}")
+                
+                is_network_error = (
+                    isinstance(e, (openai.APIConnectionError))
+                )
+
+                if is_network_error:
+                    fallback_response = self._create_fallback_response(f"Network error: {str(e)}")
+                    logger.error("[NETWORK ERROR] Invalid or expired API key. Stopping retries.")
+                    return fallback_response
+                
+                is_authentication_error = (
+                    isinstance(e, (openai.AuthenticationError))
+                )
 
                 # If the auth error is detected, break immediately — no point retrying
-                if self._is_unauthorized_error(error_str):
+                if is_authentication_error:
                     logger.error("[AUTH FAILED] Invalid or expired API key. Stopping retries.")
                     return self._create_error_response(
                         "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
                     )
 
-                is_network_error = (
-                    'network' in error_str
-                    or 'connection' in error_str
-                    or 'timeout' in error_str
-                    or 'refused' in error_str
-                )
-
-                if is_network_error and not self._check_network():
-                    fallback_response = self._create_fallback_response(f"Network error: {str(e)}")
-                    self.cache.set(
-                        cache_key,
-                        fallback_response.model_dump(),
-                        ttl=60,
-                    )
-                    return fallback_response
-
-                if attempt < max_retries:
+                if attempt < max_retries - 1:
                     wait_time = wait_times[attempt]
                     logger.warning(f"[RETRY] Waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
