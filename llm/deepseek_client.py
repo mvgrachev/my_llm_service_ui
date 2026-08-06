@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import openai
-import logging
 from typing import Optional
 from config import settings
+from config.logging_config import get_logger
 
-logger = logging.getLogger('llm_service.deepseek')
+logger = get_logger('llm_service.deepseek')
 
 # Default prompt for recipe generation
 DEFAULT_PROMPT = (
@@ -88,8 +88,12 @@ class DeepSeekClient:
         if max_output_tokens is None:
             max_output_tokens = settings.deepseek_max_output_tokens
 
-        logger.info(f"[DEEPSEEK] Generating response for input: {input_text[:100]}...")
-        logger.info(f"[DEEPSEEK] Prompt: {prompt_text[:200]}...")
+        logger.info("Generating LLM response", extra={
+            "event": "GENERATE_START",
+            "input_preview": input_text[:100],
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+        })
 
         try:
             # Pass timeout directly to the OpenAI client constructor.
@@ -113,16 +117,29 @@ class DeepSeekClient:
             )
 
             result = response.output_text
-            logger.info(f"[DEEPSEEK] Response received: {result[:200]}...")
+            logger.info("LLM response received", extra={
+                "event": "GENERATE_OK",
+                "response_preview": result[:200],
+            })
             return result
         except openai.APITimeoutError as e:
-            logger.error(f"[DEEPSEEK] Request timed out after {self.timeout} seconds: {str(e)}")
+            logger.error("LLM request timed out", extra={
+                "event": "TIMEOUT",
+                "timeout_seconds": self.timeout,
+                "error": str(e),
+            })
             raise TimeoutError(f"LLM call timed out after {self.timeout} seconds") from e
         except openai.APIConnectionError as e:
-            logger.error(f"[DEEPSEEK] Connection error: {str(e)}")
+            logger.error("LLM connection error", extra={
+                "event": "CONNECTION_ERROR",
+                "error": str(e),
+            })
             raise
         except Exception as e:
-            logger.error(f"[DEEPSEEK] Error during generation: {str(e)}")
+            logger.error("LLM generation error", extra={
+                "event": "GENERATE_ERROR",
+                "error": str(e),
+            })
             raise
 
 

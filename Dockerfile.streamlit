@@ -5,8 +5,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install streamlit>=1.28.0
+RUN pip install --no-cache-dir --default-timeout=120 -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple && pip install --no-cache-dir --default-timeout=120 streamlit>=1.28.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY . .
 

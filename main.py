@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Main entry point for the LLM Service."""
-import os
-import sys
 import asyncio
 import logging
-from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
@@ -14,31 +11,10 @@ load_dotenv()
 # Import settings after dotenv is loaded
 from config import settings
 
-# Configure logging with file and console output
-log_format = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure structured JSON logging (sets up root handlers once)
+from config.logging_config import get_logger
 
-# Create logger
-logger = logging.getLogger('llm_service')
-logger.setLevel(logging.INFO)
-
-# Console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(log_format)
-logger.addHandler(console_handler)
-
-# File handler with rotation
-log_file = settings.log_file
-file_handler = RotatingFileHandler(
-    log_file,
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=5
-)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(log_format)
-logger.addHandler(file_handler)
+logger = get_logger('llm_service')
 
 # Suppress verbose logs from external libraries
 logging.getLogger('httpx').setLevel(logging.WARNING)

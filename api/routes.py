@@ -6,9 +6,9 @@ import openai
 from api.models import ChatRequest, ChatResponse, AuthError
 from services import chat_service
 from services.chat import UnauthorizedError
-import logging
+from config.logging_config import get_logger
 
-logger = logging.getLogger('llm_service.routes')
+logger = get_logger('llm_service.routes')
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -33,15 +33,35 @@ def chat_endpoint(request: ChatRequest):
         ChatResponse with products and steps, or AuthError if API key is invalid
     """
     try:
+        logger.info("Chat request received", extra={
+            "event": "chat.request",
+            "source": "routes",
+            "dish": request.dish,
+            "people": request.people,
+            "use_steps": request.use_steps,
+        })
         response = chat_service.process_request(request)
+        logger.info("Chat request completed", extra={
+            "event": "chat.response",
+            "source": "routes",
+            "products_count": len(response.products),
+            "steps_count": len(response.steps) if response.steps else 0,
+        })
         return response
     except UnauthorizedError:
-        logger.error(f"Authentication error in chat endpoint: {AUTH_ERROR_MSG}")
+        logger.error("Authentication error in chat endpoint", extra={
+            "event": "chat.auth_error",
+            "source": "routes",
+        })
         return AuthError(message=AUTH_ERROR_MSG)
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {e}")
+        logger.error("Error in chat endpoint", extra={
+            "event": "chat.error",
+            "source": "routes",
+            "error": str(e),
+        })
 
         if _is_auth_error(e):
             return AuthError(message=AUTH_ERROR_MSG)
 
-        raise HTTPException(status_code=500, detail=f"Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку.")
+        raise HTTPException(status_code=500, detail="Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку.")
