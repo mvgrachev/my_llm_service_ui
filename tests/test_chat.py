@@ -191,8 +191,20 @@ class TestChatService:
         """Test parsing LLM response with products and steps."""
         service = ChatService()
         response = '{"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}'
+        use_steps = True
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response,use_steps)
+
+        assert parsed['products'] == ["мука", "яйца"]
+        assert parsed['steps'] == ["смешать", "выпечь"]
+
+    def test_parse_llm_response_incorrect_json(self):
+        """Test parsing LLM response with products and steps."""
+        service = ChatService()
+        response = 'Dscription: test test test {"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]} description test test test'
+        use_steps = True
+
+        parsed = service._parse_llm_response(response,use_steps)
 
         assert parsed['products'] == ["мука", "яйца"]
         assert parsed['steps'] == ["смешать", "выпечь"]
@@ -201,8 +213,9 @@ class TestChatService:
         """Test parsing LLM response with only products."""
         service = ChatService()
         response = '{"ingredients": ["мука", "яйца"]}'
+        use_steps = False
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response,use_steps)
 
         assert parsed['products'] == ["мука", "яйца"]
         assert 'steps' not in parsed
@@ -211,8 +224,9 @@ class TestChatService:
         """Test parsing LLM response with Russian keys."""
         service = ChatService()
         response = '{"продукты": ["хлеб", "масло"], "шаги": ["нарезать", "поджарить"]}'
+        use_steps = True
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response,use_steps)
 
         assert parsed['products'] == ["хлеб", "масло"]
         assert parsed['steps'] == ["нарезать", "поджарить"]
@@ -221,8 +235,9 @@ class TestChatService:
         """Test parsing invalid JSON."""
         service = ChatService()
         response = 'not json at all'
+        use_steps = False
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response, use_steps)
 
         assert parsed == {}
 
@@ -239,7 +254,7 @@ class TestChatService:
     def test_process_request_cache_hit(self):
         """Test processing request with cache hit."""
         service = ChatService()
-        request = ChatRequest(dish="Паста", people=2)
+        request = ChatRequest(dish="Паста", people=2, use_steps=True)
 
         cached_data = {"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}
 

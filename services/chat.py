@@ -39,9 +39,13 @@ class ChatService:
         key_str = json.dumps(key_data, sort_keys=True)
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
 
-    def _parse_llm_response(self, response: str) -> dict:
+    def _parse_llm_response(self, response: str, use_steps: bool) -> dict:
         """Parse LLM response and extract products and steps fields."""
         try:
+            import re
+            match = re.search(r'\{.*\}', response, re.DOTALL)
+            if match:
+                response = match.group(0)
             data = json.loads(response)
             result = {}
 
@@ -50,10 +54,11 @@ class ChatService:
                     result['products'] = data[key]
                     break
 
-            for key in ['steps', 'шаги', 'instructions', 'instruction']:
-                if key in data:
-                    result['steps'] = data[key]
-                    break
+            if use_steps:
+                for key in ['steps', 'шаги', 'instructions', 'instruction']:
+                    if key in data:
+                        result['steps'] = data[key]
+                        break
 
             return result
         except json.JSONDecodeError:
@@ -127,7 +132,7 @@ class ChatService:
 
                 logger.info(f"[LLM RESPONSE] Raw response: {llm_response[:200]}...")
 
-                parsed = self._parse_llm_response(llm_response)
+                parsed = self._parse_llm_response(llm_response,request.use_steps)
 
                 response = ChatResponse(
                     products=parsed.get('products', []),
