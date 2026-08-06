@@ -1,6 +1,16 @@
-"""Allow running the package as a module: python -m llm_service"""
-import sys
-from cli import main
+"""Allow running the service as a module: python -m llm_service"""
+import asyncio
+import uvicorn
+from dotenv import load_dotenv
+from config import settings
 
-if __name__ == "__main__":
-    main()
+load_dotenv()
+
+async def main():
+    """Main application entry point"""
+    import main as app_module
+    app_module.logger.info("Starting LLM Service...")
+    await app_module.main()
+    
+    if __name__ == "__main__":
+        asyncio.run(main())\n
