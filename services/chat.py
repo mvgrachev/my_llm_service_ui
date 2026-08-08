@@ -13,16 +13,11 @@ import openai
 
 logger = get_logger('llm_service.chat')
 
-
-class UnauthorizedError(Exception):
-    """Raised when LLM API key is invalid or expired."""
-
 class InvalidResponseFormat(Exception):
     """Invalid Response Format From LLM"""
 
 class EmptyResponse(Exception):
     """Empty Response From LLM"""
-
 
 class ChatService:
     """Service for handling chat interactions with LLM."""
@@ -75,15 +70,6 @@ class ChatService:
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM response as JSON", extra={"event": "PARSE_ERROR", "response_preview": response[:200]})
             raise InvalidResponseFormat()
-
-    def _create_fallback_response(self, error_message: str) -> ChatResponse:
-        return ChatResponse(
-            products=[],
-            steps=None,
-        )
-
-    def _create_error_response(self, error_message: str) -> ChatResponse:
-        raise UnauthorizedError(error_message)
 
     def process_request(
         self,
@@ -187,26 +173,6 @@ class ChatService:
                     "error": str(e),
                 })
 
-                is_network_error = (
-                    isinstance(e, openai.APIConnectionError)
-                )
-
-                if is_network_error:
-                    fallback_response = self._create_fallback_response(f"Network error: {str(e)}")
-                    logger.error("Network error", extra={"event": "NETWORK_ERROR"})
-                    return fallback_response
-
-                is_authentication_error = (
-                    isinstance(e, (openai.AuthenticationError,openai.PermissionDeniedError))
-                )
-
-                # If the auth error is detected, break immediately — no point retrying
-                if is_authentication_error:
-                    logger.error("Authentication error", extra={"event": "AUTH_FAILED"})
-                    return self._create_error_response(
-                        "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
-                    )
-
                 if not isinstance(e, (openai.APITimeoutError, openai.RateLimitError, openai.InternalServerError)):
                     logger.error("LLM Service Error", extra={"event": "LLM Service Error"})
                     raise
@@ -219,13 +185,12 @@ class ChatService:
                     })
                     time.sleep(wait_time)
                 else:
-                    fallback_response = self._create_fallback_response(f"Try out: {str(e)}")
                     logger.warning("LLM processing failed after all retries", extra={
                         "event": "FAILED",
                         "max_retries": max_retries,
                         "error": str(e),
                     })
-                    return fallback_response
+                    raise
 
 
 # Default instance for convenience

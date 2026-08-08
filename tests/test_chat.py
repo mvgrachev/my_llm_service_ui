@@ -231,16 +231,6 @@ class TestChatService:
         assert parsed['products'] == ["хлеб", "масло"]
         assert parsed['steps'] == ["нарезать", "поджарить"]
 
-    def test_create_fallback_response(self):
-        """Test fallback response creation."""
-        service = ChatService()
-
-        fallback = service._create_fallback_response("Network error")
-
-        assert isinstance(fallback, ChatResponse)
-        assert fallback.products == []
-        assert fallback.steps is None
-
     def test_process_request_cache_hit(self):
         """Test processing request with cache hit."""
         service = ChatService()
@@ -263,7 +253,7 @@ class TestChatEndpoint:
     @pytest.fixture
     def client(self):
         """Create test client."""
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app, raise_server_exceptions=True)
 
     def test_chat_endpoint_success(self, client):
         """Test successful chat endpoint request."""
@@ -350,6 +340,85 @@ class TestChatEndpoint:
             data = response.json()
             assert "Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку." in data['detail']
 
+    def test_chat_endpoint_timeout_error(self, client):
+        """Test chat endpoint with openai.APITimeoutError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+
+        with patch('services.chat.chat_service.process_request', side_effect=openai.APITimeoutError("Request timed out")):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 429
+            data = response.json()
+            assert "Время ожидания ответа истекло" in data['detail']
+            
+    def test_chat_endpoint_connection_error(self, client):
+        """Test chat endpoint with openai.APIConnectionError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_request = type('Request', (), {'url': 'http://test'})()
+        with patch('services.chat.chat_service.process_request', side_effect=openai.APIConnectionError(request=mock_request)):
+            response = client.post("/chat", json=request_data)
+            
+            assert response.status_code == 503
+            data = response.json()
+            assert "Сервис временно недоступен" in data['detail']
+
+    def test_chat_endpoint_authentication_error(self, client):
+        """Test chat endpoint with openai.AuthenticationError (AuthenticationError)."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 401
+        with patch('services.chat.chat_service.process_request', side_effect=openai.AuthenticationError("Invalid API key", response=mock_response, body=None)):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "Ошибка авторизации" in data['detail']
+    
+    def test_chat_endpoint_permission_denied_error(self, client):
+        """Test chat endpoint with openai.PermissionDeniedError (PermissionDeniedError)."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 401
+        with patch('services.chat.chat_service.process_request', side_effect=openai.PermissionDeniedError("Invalid API key", response=mock_response, body=None)):
+            response = client.post("/chat", json=request_data)
+        
+        assert response.status_code == 401
+        data = response.json()
+        assert "Ошибка авторизации" in data['detail']
+
+    def test_chat_endpoint_rate_limit_error(self, client):
+        """Test chat endpoint with openai.RateLimitError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 429
+        with patch('services.chat.chat_service.process_request', side_effect=openai.RateLimitError("Rate limit exceeded", response=mock_response, body=None)):
+            response = client.post("/chat", json=request_data)
+        
+        assert response.status_code == 429
+        data = response.json()
+        assert "Превышена частота обращения к сервису" in data['detail']
+
+    def test_chat_endpoint_internal_server_error(self, client):
+        """Test chat endpoint with openai.InternalServerError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 500
+        with patch('services.chat.chat_service.process_request', side_effect=openai.InternalServerError("Internal server error", response=mock_response, body=None)):
+            response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 500
+        data = response.json()
+        assert "Ошибка LLM" in data['detail']
 
 class TestCacheClient:
     """Tests for CacheClient class."""

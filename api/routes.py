@@ -5,16 +5,12 @@ from typing import Union
 import openai
 from api.models import ChatRequest, ChatResponse, AuthError
 from services import chat_service
-from services.chat import UnauthorizedError, EmptyResponse, InvalidResponseFormat
+from services.chat import EmptyResponse, InvalidResponseFormat
 from config.logging_config import get_logger
 
 logger = get_logger('llm_service.routes')
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-AUTH_ERROR_MSG = "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
-
 
 def _is_auth_error(error: BaseException) -> bool:
     """Check if the error is an authentication/API-key failure."""
@@ -48,12 +44,6 @@ def chat_endpoint(request: ChatRequest):
             "steps_count": len(response.steps) if response.steps else 0,
         })
         return response
-    except UnauthorizedError:
-        logger.error("Authentication error in chat endpoint", extra={
-            "event": "chat.auth_error",
-            "source": "routes",
-        })
-        return AuthError(message=AUTH_ERROR_MSG)
     except EmptyResponse:
         logger.warning("Empty response from LLM", extra={
             "event": "chat.empty_response",
@@ -80,8 +70,16 @@ def chat_endpoint(request: ChatRequest):
             "source": "routes",
             "error": str(e),
         })
-        
-        if _is_auth_error(e):
-            return AuthError(message=AUTH_ERROR_MSG)
-    
-        raise HTTPException(status_code=500, detail="Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку.")
+
+        if isinstance(e, openai.APITimeoutError):
+            raise HTTPException(status_code=429,detail="Время ожидания ответа истекло. Пожалуйста, попробуйте позже.")
+        elif isinstance(e, openai.APIConnectionError):
+            raise HTTPException(status_code=503,detail="Сервис временно недоступен. Попробуйте позже или обратитесь в техподдержку.")
+        elif isinstance(e, (openai.AuthenticationError, openai.PermissionDeniedError)):
+            raise HTTPException(status_code=e.status_code,detail="Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки.")
+        elif isinstance(e, openai.RateLimitError):
+            raise HTTPException(status_code=e.status_code,detail="Превышена частота обращения к сервису. Пожалуйста, попробуйте позже.")
+        elif isinstance(e, openai.InternalServerError):
+            raise HTTPException(status_code=e.status_code,detail="Ошибка LLM. Пожалуйста, попробуйте позже.")
+        else:
+            raise HTTPException(status_code=500, detail="Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку.")
