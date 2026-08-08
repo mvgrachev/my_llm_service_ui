@@ -17,6 +17,12 @@ logger = get_logger('llm_service.chat')
 class UnauthorizedError(Exception):
     """Raised when LLM API key is invalid or expired."""
 
+class InvalidResponseFormat(Exception):
+    """Invalid Response Format From LLM"""
+
+class EmptyResponse(Exception):
+    """Empty Response From LLM"""
+
 
 class ChatService:
     """Service for handling chat interactions with LLM."""
@@ -51,19 +57,24 @@ class ChatService:
 
             for key in ['products', 'продукты', 'ингредиенты', 'ingredients']:
                 if key in data:
-                    result['products'] = data[key]
-                    break
+                    for item in data[key]:
+                        if item.strip():
+                            result.setdefault('products', []).append(item)
 
             if use_steps:
                 for key in ['steps', 'шаги', 'instructions', 'instruction']:
                     if key in data:
-                        result['steps'] = data[key]
-                        break
+                        for item in data[key]:
+                            if item.strip():
+                                result.setdefault('steps', []).append(item)
+
+            if not result.get('products'):
+                raise EmptyResponse()
 
             return result
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM response as JSON", extra={"event": "PARSE_ERROR", "response_preview": response[:200]})
-            return {}
+            raise InvalidResponseFormat()
 
     def _create_fallback_response(self, error_message: str) -> ChatResponse:
         return ChatResponse(
@@ -177,24 +188,28 @@ class ChatService:
                 })
 
                 is_network_error = (
-                    isinstance(e, (openai.APIConnectionError))
+                    isinstance(e, openai.APIConnectionError)
                 )
 
                 if is_network_error:
                     fallback_response = self._create_fallback_response(f"Network error: {str(e)}")
-                    logger.error("Network error — API key invalid or expired, stopping retries", extra={"event": "NETWORK_ERROR"})
+                    logger.error("Network error", extra={"event": "NETWORK_ERROR"})
                     return fallback_response
 
                 is_authentication_error = (
-                    isinstance(e, (openai.AuthenticationError))
+                    isinstance(e, (openai.AuthenticationError,openai.PermissionDeniedError))
                 )
 
                 # If the auth error is detected, break immediately — no point retrying
                 if is_authentication_error:
-                    logger.error("Authentication failed — invalid or expired API key", extra={"event": "AUTH_FAILED"})
+                    logger.error("Authentication error", extra={"event": "AUTH_FAILED"})
                     return self._create_error_response(
                         "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
                     )
+
+                if not isinstance(e, (openai.APITimeoutError, openai.RateLimitError, openai.InternalServerError)):
+                    logger.error("LLM Service Error", extra={"event": "LLM Service Error"})
+                    raise
 
                 if attempt < max_retries - 1:
                     wait_time = wait_times[attempt]

@@ -24,9 +24,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Response model for chat endpoint."""
 
-    products: list = Field(..., description="Список продуктов")
+    products: list[str] = Field(..., description="Список продуктов")
 
-    steps: Optional[list] = Field(default=None, description="Список шагов приготовления")
+    steps: Optional[list[str]] = Field(default=None, description="Список шагов приготовления")
 
 
 class AuthError(BaseModel):

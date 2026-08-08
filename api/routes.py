@@ -5,7 +5,7 @@ from typing import Union
 import openai
 from api.models import ChatRequest, ChatResponse, AuthError
 from services import chat_service
-from services.chat import UnauthorizedError
+from services.chat import UnauthorizedError, EmptyResponse, InvalidResponseFormat
 from config.logging_config import get_logger
 
 logger = get_logger('llm_service.routes')
@@ -54,14 +54,34 @@ def chat_endpoint(request: ChatRequest):
             "source": "routes",
         })
         return AuthError(message=AUTH_ERROR_MSG)
+    except EmptyResponse:
+        logger.warning("Empty response from LLM", extra={
+            "event": "chat.empty_response",
+            "source": "routes",
+            "dish": request.dish,
+        })
+        raise HTTPException(
+            status_code=422,
+            detail="LLM вернул пустой ответ. Попробуйте изменить запрос.",
+        )
+    except InvalidResponseFormat:
+        logger.warning("Invalid response format from LLM", extra={
+            "event": "chat.invalid_format",
+            "source": "routes",
+            "dish": request.dish,
+        })
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось обработать ответ от LLM. Попробуйте позже.",
+        )
     except Exception as e:
         logger.error("Error in chat endpoint", extra={
             "event": "chat.error",
             "source": "routes",
             "error": str(e),
         })
-
+        
         if _is_auth_error(e):
             return AuthError(message=AUTH_ERROR_MSG)
-
+    
         raise HTTPException(status_code=500, detail="Непредвиденная ошибка. Попробуйте позже или обратитесь в техподдержку.")

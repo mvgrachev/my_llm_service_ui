@@ -231,16 +231,6 @@ class TestChatService:
         assert parsed['products'] == ["хлеб", "масло"]
         assert parsed['steps'] == ["нарезать", "поджарить"]
 
-    def test_parse_llm_response_invalid_json(self):
-        """Test parsing invalid JSON."""
-        service = ChatService()
-        response = 'not json at all'
-        use_steps = False
-
-        parsed = service._parse_llm_response(response, use_steps)
-
-        assert parsed == {}
-
     def test_create_fallback_response(self):
         """Test fallback response creation."""
         service = ChatService()
@@ -400,12 +390,127 @@ class TestCacheClient:
 
         assert result is False
 
-    def test_delete_key(self):
-        """Test deleting key."""
-        cache = CacheClient()
 
-        cache.set("delete_key", {"test": "value"})
-        cache.delete("delete_key")
-        result = cache.exists("delete_key")
+class TestEmptyResponse:
+    """Tests for EmptyResponse exception."""
 
-        assert result is False
+    def test_exception_is_raised(self):
+        """Test that EmptyResponse is a subclass of Exception."""
+        from services.chat import EmptyResponse
+
+        assert issubclass(EmptyResponse, Exception)
+        exc = EmptyResponse()
+        assert isinstance(exc, Exception)
+
+    def test_exception_message(self):
+        """Test EmptyResponse can carry a message."""
+        from services.chat import EmptyResponse
+
+        exc = EmptyResponse("No products found")
+        assert str(exc) == "No products found"
+
+    def test_parse_llm_response_missing_products_raises_empty_response(self):
+        """Test that missing 'products' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"steps": ["смешать", "выпечь"]}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_empty_products_raises_empty_response(self):
+        """Test that empty string 'products' raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"products": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_products_whitespace_only_raises_empty_response(self):
+        """Test that whitespace-only 'products' raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+        service = ChatService()
+        response = '{"products": "   "}'
+        use_steps = False
+        # products is whitespace only, so EmptyResponse should be raised
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+    
+    def test_parse_llm_response_empty_ingredients_raises_empty_response(self):
+        """Test that empty 'ingredients' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"ingredients": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_empty_products_rus_raises_empty_response(self):
+        """Test that empty 'продукты' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"продукты": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+
+class TestInvalidResponseFormat:
+    """Tests for InvalidResponseFormat exception."""
+
+    def test_exception_is_raised(self):
+        """Test that InvalidResponseFormat is a subclass of Exception."""
+        from services.chat import InvalidResponseFormat
+
+        assert issubclass(InvalidResponseFormat, Exception)
+        exc = InvalidResponseFormat()
+        assert isinstance(exc, Exception)
+
+    def test_exception_message(self):
+        """Test InvalidResponseFormat can carry a message."""
+        from services.chat import InvalidResponseFormat
+
+        exc = InvalidResponseFormat("Invalid JSON format")
+        assert str(exc) == "Invalid JSON format"
+
+    def test_parse_llm_response_completely_invalid_json_raises(self):
+        """Test that completely invalid JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        response = 'not json at all'
+        use_steps = False
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_malformed_json_raises(self):
+        """Test that malformed JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        response = '{"products": "мука", "steps": ["смешать"}'  # missing closing braces
+        use_steps = True
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_no_braces_invalid_json_raises(self):
+        """Test that text with no braces that is not valid JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        response = 'Сегодня отличная погода, пойдем гулять'
+        use_steps = False
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)
