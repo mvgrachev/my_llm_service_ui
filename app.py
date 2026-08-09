@@ -54,14 +54,9 @@ if submitted:
                     )
                     data = response.json()
 
-                    # AuthError — поле "message"
-                    if "message" in data:
-                        st.error(f"🔑 {data['message']}")
-                        break
-
-                    # Ошибки авторизации по HTTP-коду 401
-                    if response.status_code == 401:
-                        st.error("🔑 Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки.")
+                    if response.status_code != 200:
+                        error_detail = data.get("detail", "Неизвестная ошибка")
+                        st.error(error_detail)
                         break
 
                     response.raise_for_status()
