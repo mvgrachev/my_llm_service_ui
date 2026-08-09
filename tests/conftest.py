@@ -7,17 +7,18 @@ import sys
 os.environ['YANDEX_CLOUD_FOLDER'] = 'test-folder-id'
 os.environ['YANDEX_CLOUD_API_KEY'] = 'test-api-key'
 os.environ['YANDEX_CLOUD_MODEL'] = 'deepseek-v4-flash/latest'
+os.environ['YANDEX_CLOUD_BASE_URL'] = 'https://ai.api.cloud.yandex.net/v1'
 os.environ['APP_ENV'] = 'test'
 os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
 
 # ---------------------------------------------------------------------------
 # Mock the real LLM client BEFORE any project module is imported.
 #
-# services.chat imports ``from llm import deepseek_client``.  If the real
+# services.chat imports ``from llm import get_deepseek_client``.  If the real
 # llm package is loaded first, its module-level code will try to connect to
 # Yandex Cloud (or at least import openai with real credentials).  By
 # inserting a fake ``llm`` module into sys.modules *first*, we guarantee
-# that every subsequent import of ``llm`` (or ``llm.deepseek_client``)
+# that every subsequent import of ``llm`` (or ``llm.get_deepseek_client``)
 # receives our mock instead of the real implementation.
 #
 # This must happen before ``import main`` / ``import api`` / ``import services``.

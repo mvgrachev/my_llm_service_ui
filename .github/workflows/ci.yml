@@ -32,6 +32,13 @@ jobs:
   test:
     name: Tests (test_chat.py)
     runs-on: ubuntu-latest
+    env:
+      YANDEX_CLOUD_FOLDER: test-folder-id
+      YANDEX_CLOUD_API_KEY: test-api-key
+      YANDEX_CLOUD_MODEL: deepseek-v4-flash/latest
+      YANDEX_CLOUD_BASE_URL: https://ai.api.cloud.yandex.net/v1
+      APP_ENV: test
+      REDIS_URL: redis://localhost:6379/0
     services:
       redis:
         image: redis:7
