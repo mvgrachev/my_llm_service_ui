@@ -246,4 +246,101 @@ jobs:
         with:
           name: dist-sdist
           path: dist/*.tar.gz
-          retention-days: 7</to>
+          retention-days: 7
+
+  docker-build:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build FastAPI image
+        run: |
+          docker build -t llm-service-api:ci .
+
+      - name: Build Streamlit image
+        run: |
+          docker build -f Dockerfile.streamlit -t llm-service-streamlit:ci .
+
+      - name: Validate FastAPI image can start
+        run: |
+          docker run --rm -d --name llm-test-api -p 8000:8000 \
+            -e APP_ENV=test \
+            -e YANDEX_CLOUD_FOLDER=test-folder-id \
+            -e YANDEX_CLOUD_API_KEY=test-api-key \
+            -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e REDIS_URL=redis://localhost:6379/0 \
+            llm-service-api:ci &
+          API_PID=$!
+
+          # Wait for container to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+              echo "FastAPI image health check passed!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "FastAPI image failed to become healthy within 30s"
+              docker logs llm-test-api
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker stop llm-test-api >/dev/null 2>&1 || true
+          docker rm llm-test-api >/dev/null 2>&1 || true
+
+      - name: Validate Streamlit image can start
+        run: |
+          docker run --rm -d --name llm-test-streamlit -p 8501:8501 \
+            -e APP_ENV=test \
+            -e YANDEX_CLOUD_FOLDER=test-folder-id \
+            -e YANDEX_CLOUD_API_KEY=test-api-key \
+            -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e REDIS_URL=redis://localhost:6379/0 \
+            -e FASTAPI_URL=http://localhost:8000 \
+            llm-service-streamlit:ci &
+          STREAMLIT_PID=$!
+
+          # Wait for container to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+              echo "Streamlit image health check passed!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Streamlit image failed to become healthy within 30s"
+              docker logs llm-test-streamlit
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker stop llm-test-streamlit >/dev/null 2>&1 || true
+          docker rm llm-test-streamlit >/dev/null 2>&1 || true
+
+      - name: Inspect built images
+        run: |
+          echo "=== FastAPI image ==="
+          docker inspect llm-service-api:ci --format='Size: {{.Size}} bytes, Created: {{.Created}}'
+          docker history llm-service-api:ci --no-trunc
+
+          echo ""
+          echo "=== Streamlit image ==="
+          docker inspect llm-service-streamlit:ci --format='Size: {{.Size}} bytes, Created: {{.Created}}'
+          docker history llm-service-streamlit:ci --no-trunc
+
+          echo ""
+          echo "=== Image sizes ==="
+          docker images llm-service-api llm-service-streamlit --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+
+      - name: Cleanup Docker containers
+        if: always()
+        run: |
+          docker stop llm-test-api llm-test-streamlit >/dev/null 2>&1 || true
+          docker rm llm-test-api llm-test-streamlit >/dev/null 2>&1 || true
