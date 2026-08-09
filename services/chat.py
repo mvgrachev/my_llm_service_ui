@@ -1,5 +1,5 @@
 from api.models import ChatRequest, ChatResponse
-from llm import deepseek_client
+from llm import get_deepseek_client
 from config import settings
 from config.logging_config import get_logger
 from cache import cache
@@ -23,7 +23,7 @@ class ChatService:
     """Service for handling chat interactions with LLM."""
 
     def __init__(self, client=None, settings_obj=None, cache_client=None):
-        self.client = client or deepseek_client
+        self.client = client or get_deepseek_client()
         self.settings = settings_obj or settings
         self.cache = cache_client or cache
 

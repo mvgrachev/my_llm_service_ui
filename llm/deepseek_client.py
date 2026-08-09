@@ -142,6 +142,13 @@ class DeepSeekClient:
             })
             raise
 
+# Default instance for convenience (lazy to avoid env vars during import)
+_deepseek_client_instance = None
 
-# Default instance for convenience
-deepseek_client = DeepSeekClient()
+
+def get_deepseek_client():
+    """Return a lazily-initialized singleton DeepSeekClient."""
+    global _deepseek_client_instance
+    if _deepseek_client_instance is None:
+        _deepseek_client_instance = DeepSeekClient()
+    return _deepseek_client_instance

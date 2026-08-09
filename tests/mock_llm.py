@@ -15,13 +15,15 @@ _mock_client.generate.return_value = '{"products": ["test"], "steps": ["step1"]}
 
 # Ensure the llm package namespace contains the mock
 # This must happen before llm/__init__.py runs (i.e. before anyone does
-# ``import llm`` or ``from llm import deepseek_client``).
+# ``import llm`` or ``from llm import get_deepseek_client``).
 if "llm" not in sys.modules:
     import types
     llm_pkg = types.ModuleType("llm")
     llm_pkg.deepseek_client = _mock_client
+    llm_pkg.get_deepseek_client = lambda: _mock_client
     sys.modules["llm"] = llm_pkg
 else:
     # If llm was already imported but not yet its __init__ (e.g. partial),
     # still inject the mock so downstream reads see it.
     sys.modules["llm"].deepseek_client = _mock_client
+    sys.modules["llm"].get_deepseek_client = lambda: _mock_client
