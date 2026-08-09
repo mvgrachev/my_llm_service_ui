@@ -158,7 +158,7 @@ def get_logger(name: str) -> logging.Logger:
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5,
     )
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     # Disable propagation to avoid duplicate logs when parent has handlers

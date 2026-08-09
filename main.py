@@ -16,6 +16,8 @@ from config.logging_config import get_logger
 
 logger = get_logger('llm_service')
 
+logger.info("Application environment: %s", settings.env)
+
 # Suppress verbose logs from external libraries
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('uvicorn').setLevel(logging.WARNING)

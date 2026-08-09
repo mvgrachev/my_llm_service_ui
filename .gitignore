@@ -50,3 +50,6 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# CI-generated launcher (not part of the project)
+start_server.py

@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       redis:
@@ -30,6 +31,7 @@ services:
     env_file:
       - .env
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - FASTAPI_URL=${FASTAPI_URL:-http://fastapi:8000}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
     depends_on:

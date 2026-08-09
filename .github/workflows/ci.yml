@@ -96,18 +96,21 @@ jobs:
           pip install -r requirements.txt
           pip install streamlit httpx
 
-      - name: Mock LLM client to avoid real API calls
+      - name: Start FastAPI server with mocked LLM
         run: |
-          cat > llm/__init__.py << 'PYEOF'
-          """Mock LLM client for CI."""
-          from unittest.mock import MagicMock
-          client = MagicMock()
-          client.generate.return_value = '{"products": ["test"], "steps": ["step1"]}'
-          PYEOF
-
-      - name: Start FastAPI server in background
-        run: |
-          python main.py &
+          # start_server.py imports mock_llm first, which injects a MagicMock
+          # as 'llm.deepseek_client' into sys.modules before any project
+          # modules are imported.
+          #
+          # This replaces the previous approach of overwriting llm/__init__.py,
+          # which was broken because:
+          #   1) it created an object named ``client`` instead of
+          #      ``deepseek_client`` (services.chat imports ``deepseek_client``
+          #      from llm, so the import chain broke).
+          #   2) it mutated a tracked source file in the runner, so the smoke
+          #      test verified a modified tree rather than the repository's own
+          #      code.
+          python start_server.py &
           SERVER_PID=$!
           echo "FastAPI PID: $SERVER_PID"
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
@@ -134,7 +137,7 @@ jobs:
 
           # Wait for Streamlit to be ready (up to 30s)
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8501/healthz > /dev/null 2>&1; then
+            if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
               echo "Streamlit is ready!"
               break
             fi
@@ -156,7 +159,7 @@ jobs:
           fi
 
           # Check Streamlit health endpoint
-          HEALTH=$(curl -s http://localhost:8501/healthz)
+          HEALTH=$(curl -s http://localhost:8501/_stcore/health)
           echo "Streamlit health: $HEALTH"
 
           # Check FastAPI is still running

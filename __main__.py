@@ -13,4 +13,4 @@ async def main():
     await app_module.main()
     
     if __name__ == "__main__":
-        asyncio.run(main())\n
+        asyncio.run(main())

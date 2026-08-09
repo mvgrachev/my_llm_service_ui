@@ -37,7 +37,10 @@ fastapi.log
 streamlit.log
 server.log
 
-{"text": "# Cache and temporary files\n.pytest_cache/\n.coverage\nhtmlcov/"}
+# Cache and temporary files
+.pytest_cache/
+.coverage
+htmlcov/
 
 # OS files
 .DS_Store
