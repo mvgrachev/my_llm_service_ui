@@ -105,24 +105,11 @@ jobs:
 
       - name: Start FastAPI server with mocked LLM
         run: |
-          # start_server.py imports mock_llm first, which injects a MagicMock
-          # as 'llm.deepseek_client' into sys.modules before any project
-          # modules are imported.
-          #
-          # This replaces the previous approach of overwriting llm/__init__.py,
-          # which was broken because:
-          #   1) it created an object named ``client`` instead of
-          #      ``deepseek_client`` (services.chat imports ``deepseek_client``
-          #      from llm, so the import chain broke).
-          #   2) it mutated a tracked source file in the runner, so the smoke
-          #      test verified a modified tree rather than the repository's own
-          #      code.
           python start_server.py &
           SERVER_PID=$!
           echo "FastAPI PID: $SERVER_PID"
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
 
-          # Wait for server to be ready (up to 30s)
           for i in $(seq 1 30); do
             if curl -s http://localhost:8000/health > /dev/null 2>&1; then
               echo "FastAPI is ready!"
@@ -142,7 +129,6 @@ jobs:
           echo "Streamlit PID: $STREAMLIT_PID"
           echo "STREAMLIT_PID=$STREAMLIT_PID" >> $GITHUB_ENV
 
-          # Wait for Streamlit to be ready (up to 30s)
           for i in $(seq 1 30); do
             if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
               echo "Streamlit is ready!"
@@ -157,7 +143,6 @@ jobs:
 
       - name: Verify Streamlit UI is accessible
         run: |
-          # Check Streamlit main page
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8501/)
           echo "Streamlit main page HTTP code: $HTTP_CODE"
           if [ "$HTTP_CODE" != "200" ]; then
@@ -165,34 +150,28 @@ jobs:
             exit 1
           fi
 
-          # Check Streamlit health endpoint
           HEALTH=$(curl -s http://localhost:8501/_stcore/health)
           echo "Streamlit health: $HEALTH"
 
-          # Check FastAPI is still running
           API_RESPONSE=$(curl -s http://localhost:8000/health)
           echo "FastAPI health: $API_RESPONSE"
 
       - name: Stop Streamlit and FastAPI servers
         if: always()
         run: |
-          # Stop Streamlit
           if command -v streamlit &> /dev/null && [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
             echo "Stopping Streamlit (PID: $STREAMLIT_PID)..."
             streamlit stop --server.port 8501 || true
             kill "$STREAMLIT_PID" 2>/dev/null || true
           fi
 
-          # Stop FastAPI
           if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
             echo "Stopping FastAPI (PID: $SERVER_PID)..."
             kill "$SERVER_PID" 2>/dev/null || true
           fi
 
-          # Wait for processes to terminate
           sleep 2
 
-          # Force kill if still running
           if [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
             echo "Force killing Streamlit..."
             kill -9 "$STREAMLIT_PID" 2>/dev/null || true
@@ -269,18 +248,34 @@ jobs:
 
       - name: Validate FastAPI image can start
         run: |
-          docker run --rm -d --name llm-test-api -p 8000:8000 \
+          # Start Redis container (GitHub Actions services are not visible from nested docker run)
+          docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
+
+          # Wait for Redis to be ready
+          for i in $(seq 1 10); do
+            if docker exec ci-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready!"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Redis failed to start"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Start FastAPI container with host network to reach Redis on 127.0.0.1
+          docker run --rm -d --name llm-test-api --network host \
             -e APP_ENV=test \
             -e YANDEX_CLOUD_FOLDER=test-folder-id \
             -e YANDEX_CLOUD_API_KEY=test-api-key \
             -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
-            -e REDIS_URL=redis://localhost:6379/0 \
-            llm-service-api:ci &
-          API_PID=$!
+            -e REDIS_URL=redis://127.0.0.1:6379/0 \
+            llm-service-api:ci
 
-          # Wait for container to be ready
+          # Wait for FastAPI to be ready
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+            if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then
               echo "FastAPI image health check passed!"
               break
             fi
@@ -293,23 +288,26 @@ jobs:
           done
 
           docker stop llm-test-api >/dev/null 2>&1 || true
-          docker rm llm-test-api >/dev/null 2>&1 || true
 
       - name: Validate Streamlit image can start
         run: |
-          docker run --rm -d --name llm-test-streamlit -p 8501:8501 \
+          # Ensure Redis is running
+          docker ps -q --filter "name=ci-redis" | grep -q . || \
+            docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
+
+          # Start Streamlit container with host network
+          docker run --rm -d --name llm-test-streamlit --network host \
             -e APP_ENV=test \
             -e YANDEX_CLOUD_FOLDER=test-folder-id \
             -e YANDEX_CLOUD_API_KEY=test-api-key \
             -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
-            -e REDIS_URL=redis://localhost:6379/0 \
-            -e FASTAPI_URL=http://localhost:8000 \
-            llm-service-streamlit:ci &
-          STREAMLIT_PID=$!
+            -e REDIS_URL=redis://127.0.0.1:6379/0 \
+            -e FASTAPI_URL=http://127.0.0.1:8000 \
+            llm-service-streamlit:ci
 
-          # Wait for container to be ready
+          # Wait for Streamlit to be ready
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+            if curl -s http://127.0.0.1:8501/_stcore/health > /dev/null 2>&1; then
               echo "Streamlit image health check passed!"
               break
             fi
@@ -322,7 +320,6 @@ jobs:
           done
 
           docker stop llm-test-streamlit >/dev/null 2>&1 || true
-          docker rm llm-test-streamlit >/dev/null 2>&1 || true
 
       - name: Inspect built images
         run: |
@@ -342,5 +339,5 @@ jobs:
       - name: Cleanup Docker containers
         if: always()
         run: |
-          docker stop llm-test-api llm-test-streamlit >/dev/null 2>&1 || true
-          docker rm llm-test-api llm-test-streamlit >/dev/null 2>&1 || true
+          docker stop llm-test-api llm-test-streamlit ci-redis >/dev/null 2>&1 || true
+          docker rm llm-test-api llm-test-streamlit ci-redis >/dev/null 2>&1 || true
