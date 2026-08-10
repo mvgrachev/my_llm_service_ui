@@ -342,7 +342,8 @@ jobs:
 
           echo ""
           echo "=== Image sizes ==="
-          docker images llm-service-api llm-service-streamlit --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+          docker images llm-service-api --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+          docker images llm-service-streamlit --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 
       - name: Cleanup Docker containers
         if: always()
