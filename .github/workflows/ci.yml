@@ -248,7 +248,10 @@ jobs:
 
       - name: Validate FastAPI image can start
         run: |
-          # Start Redis container (GitHub Actions services are not visible from nested docker run)
+          # Ensure Redis image is available (GitHub Actions services are not visible from nested docker run)
+          docker pull redis:7 --quiet 2>/dev/null || true
+          
+          # Start Redis container
           docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
 
           # Wait for Redis to be ready
@@ -291,6 +294,9 @@ jobs:
 
       - name: Validate Streamlit image can start
         run: |
+          # Ensure Redis image is available (GitHub Actions services are not visible from nested docker run)
+          docker pull redis:7 --quiet 2>/dev/null || true
+          
           # Ensure Redis is running
           docker ps -q --filter "name=ci-redis" | grep -q . || \
             docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
