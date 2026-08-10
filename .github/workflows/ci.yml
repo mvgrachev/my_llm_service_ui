@@ -273,6 +273,7 @@ jobs:
             -e YANDEX_CLOUD_FOLDER=test-folder-id \
             -e YANDEX_CLOUD_API_KEY=test-api-key \
             -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e YANDEX_CLOUD_BASE_URL=https://ai.api.cloud.yandex.net/v1 \
             -e REDIS_URL=redis://127.0.0.1:6379/0 \
             llm-service-api:ci
 
@@ -307,6 +308,7 @@ jobs:
             -e YANDEX_CLOUD_FOLDER=test-folder-id \
             -e YANDEX_CLOUD_API_KEY=test-api-key \
             -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e YANDEX_CLOUD_BASE_URL=https://ai.api.cloud.yandex.net/v1 \
             -e REDIS_URL=redis://127.0.0.1:6379/0 \
             -e FASTAPI_URL=http://127.0.0.1:8000 \
             llm-service-streamlit:ci

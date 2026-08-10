@@ -49,7 +49,18 @@ class DeepSeekClient:
         self.model = model or settings.yandex_cloud_model
         self.prompt = prompt or settings.system_prompt or DEFAULT_PROMPT
         self.timeout = timeout if timeout is not None else settings.deepseek_timeout
-        
+
+    def _ensure_initialized(self):
+        """Validate required env vars lazily before the first API call."""
+        # Re-read settings in case env changed after __init__
+        if self.base_url is None:
+            self.base_url = settings.yandex_cloud_base_url
+        if self.folder_id is None:
+            self.folder_id = settings.yandex_cloud_folder
+        if self.api_key is None:
+            self.api_key = settings.yandex_cloud_api_key
+        if self.model is None:
+            self.model = settings.yandex_cloud_model
         if not self.base_url:
             raise ValueError("YANDEX_CLOUD_BASE_URL environment variable is required")
         if not self.folder_id:
@@ -80,6 +91,7 @@ class DeepSeekClient:
             TimeoutError: If request takes longer than timeout
             Exception: If LLM call fails
         """
+        self._ensure_initialized()
         prompt_text = instructions if instructions is not None else self.prompt
 
         if temperature is None:
