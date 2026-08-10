@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Main entry point for the LLM Service."""
-import asyncio
 import logging
 from fastapi import FastAPI
 from dotenv import load_dotenv
+from api import router
+from config import settings
+# Configure structured JSON logging (sets up root handlers once)
+from config.logging_config import get_logger
 
 # Load environment variables from .env file
 load_dotenv()
-
-# Import settings after dotenv is loaded
-from config import settings
-
-# Configure structured JSON logging (sets up root handlers once)
-from config.logging_config import get_logger
 
 logger = get_logger('llm_service')
 
@@ -30,7 +27,6 @@ app = FastAPI(
 )
 
 # Import and include API router
-from api import router
 app.include_router(router)
 
 
@@ -54,6 +50,7 @@ async def run_server(host: str = None, port: int = None):
     logger.info(f"Starting LLM Service on {host}:{port}...")
     import uvicorn
     uvicorn.run(app, host=host, port=port)
+
 
 async def main():
     """Main application entry point"""

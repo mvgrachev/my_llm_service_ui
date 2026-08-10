@@ -2,13 +2,13 @@
 
 Provides a JSON formatter that emits log records as single-line JSON objects
 with explicit fields: timestamp, level, event, source, request_id, duration_ms,
-attempt, message, and any extra fields attached via logger.info(..., extra={...}).
+attempt, message, and any extra fields
+attached via logger.info(..., extra={...}).
 """
 
 import json
 import logging
 import sys
-import time
 import uuid
 from logging.handlers import RotatingFileHandler
 
@@ -18,11 +18,19 @@ from config import settings
 # JSON Formatter
 # ---------------------------------------------------------------------------
 
+
 class JsonFormatter(logging.Formatter):
     """Emit each log record as a single JSON line."""
 
     # Fields that logging always injects – we expose them explicitly
-    _core_fields = {"levelname", "name", "msg", "args", "exc_info", "stack_info"}
+    _core_fields = {
+        "levelname",
+        "name",
+        "msg",
+        "args",
+        "exc_info",
+        "stack_info"
+    }
 
     def format(self, record: logging.LogRecord) -> str:
         # Build the base payload
@@ -61,14 +69,21 @@ class JsonFormatter(logging.Formatter):
         msg = record.getMessage()
         payload["message"] = msg
 
-        # Include any extra fields that were passed via logger.xxx(..., extra={...})
+        # Include any extra fields
+        # that were passed via logger.xxx(..., extra={...})
         for key, value in record.__dict__.items():
             if key in self._core_fields:
                 continue
             if key.startswith("_"):
                 continue
             # Skip fields already placed above
-            if key in ("request_id", "duration_ms", "attempt", "source", "event"):
+            if key in (
+                "request_id",
+                "duration_ms",
+                "attempt",
+                "source",
+                "event"
+            ):
                 continue
             if key == "message":
                 continue
@@ -158,12 +173,18 @@ def get_logger(name: str) -> logging.Logger:
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5,
     )
-    file_handler.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
+    file_handler.setLevel(
+        getattr(
+            logging,
+            settings.log_level.upper(),
+            logging.INFO
+        )
+    )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     # Disable propagation to avoid duplicate logs when parent has handlers
     logger.propagate = False
-    
+
     return logger
 
 

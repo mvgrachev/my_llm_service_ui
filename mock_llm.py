@@ -11,7 +11,9 @@ from unittest.mock import MagicMock
 
 # Create the mock LLM client
 _mock_client = MagicMock()
-_mock_client.generate.return_value = '{"products": ["test"], "steps": ["step1"]}'
+_mock_client.generate.return_value = (
+    '{"products": ["test"], "steps": ["step1"]}'
+)
 
 # Ensure the llm package namespace contains the mock
 # This must happen before llm/__init__.py runs (i.e. before anyone does

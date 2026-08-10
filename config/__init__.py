@@ -4,7 +4,8 @@ from config.config import get_settings
 
 
 class _SettingsProxy:
-    """Thin proxy that forwards every attribute to the env-specific instance."""
+    """Thin proxy that forwards every attribute \
+    to the env-specific instance."""
 
     __slots__ = ("_instance", "_internal_names")
 

@@ -1,24 +1,33 @@
 """DeepSeek client for Yandex Cloud."""
 from dotenv import load_dotenv
-
-load_dotenv()
-
 import openai
 from typing import Optional
 from config import settings
 from config.logging_config import get_logger
 
+load_dotenv()
+
 logger = get_logger('llm_service.deepseek')
 
 # Default prompt for recipe generation
 DEFAULT_PROMPT = (
-    "Пользователь пишет блюдо, количество персон и опционально указывает нужны ли в ответе шаги приготовления."
-    "В результате получаем список продуктов с указанием веса в граммах и опционально шаги приготовления (не более 5)."
+    "Пользователь пишет блюдо, "
+    "количество персон и опционально указывает "
+    "нужны ли в ответе шаги приготовления."
+    "В результате получаем список продуктов "
+    "с указанием веса в граммах и опционально "
+    "шаги приготовления (не более 5)."
     "\n\nФормат ответа: JSON. "
-    "Обязательные поля: products (список строк — каждый продукт отдельной строкой в массиве), "
-    "steps (список строк — каждый шаг отдельной строкой в массиве, опционально). "
+    "Обязательные поля: products "
+    "(список строк — каждый продукт отдельной строкой в массиве), "
+    "steps (список строк — каждый шаг отдельной строкой в массиве, "
+    "опционально). "
     "Без вступления, без лишних полей, только JSON."
-    '\nПример: {"products": ["Мясо - 300 граммов","Картофель - 200 граммов"], "steps": ["Разморозить", "Пожарить"]}'
+    "\nПример: "
+    "{\n"
+    '    "products": ["Мясо - 300 граммов", "Картофель - 200 граммов"],\n'
+    '    "steps": ["Разморозить", "Пожарить"]\n'
+    "}"
 )
 
 
@@ -37,18 +46,22 @@ class DeepSeekClient:
         Initialize DeepSeek client.
 
         Args:
-            folder_id: Yandex Cloud folder ID (from settings.yandex_cloud_folder)
-            api_key: Yandex Cloud API key (from settings.yandex_cloud_api_key)
-            model: Model name (from settings.yandex_cloud_model)
-            prompt: System prompt for recipe generation (from settings.system_prompt or DEFAULT_PROMPT)
-            timeout: Request timeout in seconds (from settings.deepseek_timeout, default 30)
+            folder_id: Yandex Cloud folder ID
+            api_key: Yandex Cloud API key
+            model: Model name
+            prompt: System prompt for recipe generation
+            timeout: Request timeout in seconds
         """
         self.base_url = settings.yandex_cloud_base_url
         self.folder_id = folder_id or settings.yandex_cloud_folder
         self.api_key = api_key or settings.yandex_cloud_api_key
         self.model = model or settings.yandex_cloud_model
         self.prompt = prompt or settings.system_prompt or DEFAULT_PROMPT
-        self.timeout = timeout if timeout is not None else settings.deepseek_timeout
+        self.timeout = (
+            timeout
+            if timeout is not None
+            else settings.deepseek_timeout
+        )
 
     def _ensure_initialized(self):
         """Validate required env vars lazily before the first API call."""
@@ -62,11 +75,23 @@ class DeepSeekClient:
         if self.model is None:
             self.model = settings.yandex_cloud_model
         if not self.base_url:
-            raise ValueError("YANDEX_CLOUD_BASE_URL environment variable is required")
+            error_message = (
+                "YANDEX_CLOUD_BASE_URL "
+                "environment variable is required"
+            )
+            raise ValueError(error_message)
         if not self.folder_id:
-            raise ValueError("YANDEX_CLOUD_FOLDER environment variable is required")
+            error_message = (
+                "YANDEX_CLOUD_FOLDER environment "
+                "variable is required"
+            )
+            raise ValueError(error_message)
         if not self.api_key:
-            raise ValueError("YANDEX_CLOUD_API_KEY environment variable is required")
+            error_message = (
+                "YANDEX_CLOUD_API_KEY "
+                "environment variable is required"
+            )
+            raise ValueError(error_message)
 
     def generate(
         self,
@@ -80,8 +105,8 @@ class DeepSeekClient:
 
         Args:
             input_text: Input text for the model
-            temperature: Temperature for generation (from settings.deepseek_temperature if None)
-            instructions: System instructions (uses self.prompt if None)
+            temperature: Temperature for generation
+            instructions: System instructions
             max_output_tokens: Maximum output tokens
 
         Returns:
@@ -96,7 +121,7 @@ class DeepSeekClient:
 
         if temperature is None:
             temperature = settings.deepseek_temperature
-        
+
         if max_output_tokens is None:
             max_output_tokens = settings.deepseek_max_output_tokens
 
@@ -140,7 +165,8 @@ class DeepSeekClient:
                 "timeout_seconds": self.timeout,
                 "error": str(e),
             })
-            raise TimeoutError(f"LLM call timed out after {self.timeout} seconds") from e
+            error_message = f"LLM call timed out after {self.timeout} seconds"
+            raise TimeoutError(f"{error_message}") from e
         except openai.APIConnectionError as e:
             logger.error("LLM connection error", extra={
                 "event": "CONNECTION_ERROR",
@@ -153,6 +179,7 @@ class DeepSeekClient:
                 "error": str(e),
             })
             raise
+
 
 # Default instance for convenience (lazy to avoid env vars during import)
 _deepseek_client_instance = None

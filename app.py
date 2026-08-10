@@ -17,7 +17,10 @@ FASTAPI_URL = settings.fastapi_url
 API_URL = f"{FASTAPI_URL}/chat"
 
 st.title("🍳 Подбор продуктов и рецептов")
-st.markdown("Укажите блюдо, и сервис подскажет нужные продукты и шаги приготовления.")
+st.markdown(
+    "Укажите блюдо, и сервис подскажет "
+    "нужные продукты и шаги приготовления."
+)
 
 # Form inputs
 with st.form("chat_form"):
@@ -34,7 +37,11 @@ with st.form("chat_form"):
     with col2:
         use_steps = st.checkbox("Показать шаги приготовления", value=True)
 
-    submitted = st.form_submit_button("Отправить", type="primary", use_container_width=True)
+    submitted = st.form_submit_button(
+        "Отправить",
+        type="primary",
+        use_container_width=True
+    )
 
 if submitted:
     if not dish.strip():
@@ -80,7 +87,10 @@ if submitted:
                     break
 
                 except requests.exceptions.ConnectionError:
-                    st.error("❌ Не удалось подключиться к серверу. Убедитесь, что FastAPI запущен на порту 8000.")
+                    st.error(
+                        "❌ Не удалось подключиться к серверу. "
+                        "Убедитесь, что FastAPI запущен на порту 8000."
+                    )
                     break
                 except requests.exceptions.Timeout:
                     st.error("❌ Превышено время ожидания ответа от сервера.")

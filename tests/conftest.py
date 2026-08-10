@@ -21,10 +21,10 @@ os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
 # that every subsequent import of ``llm`` (or ``llm.get_deepseek_client``)
 # receives our mock instead of the real implementation.
 #
-# This must happen before ``import main`` / ``import api`` / ``import services``.
+# This must happen before
+#   ``import main`` / ``import api`` / ``import services``.
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(__file__))
-from mock_llm import _mock_client  # noqa: E402  # registers llm in sys.modules
 
 # Clear any previously cached project imports so they reload with the mock
 for module_name in list(sys.modules.keys()):

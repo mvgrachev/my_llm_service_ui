@@ -7,17 +7,19 @@ from typing import Optional
 import json
 import hashlib
 import time
-import socket
 import openai
 
 
 logger = get_logger('llm_service.chat')
 
+
 class InvalidResponseFormat(Exception):
     """Invalid Response Format From LLM"""
 
+
 class EmptyResponse(Exception):
     """Empty Response From LLM"""
+
 
 class ChatService:
     """Service for handling chat interactions with LLM."""
@@ -27,7 +29,14 @@ class ChatService:
         self.settings = settings_obj or settings
         self.cache = cache_client or cache
 
-    def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int, system_prompt: str, model: str) -> str:
+    def _generate_cache_key(
+        self,
+        request: ChatRequest,
+        temperature: float,
+        max_output_tokens: int,
+        system_prompt: str,
+        model: str
+    ) -> str:
         key_data = {
             "dish": request.dish,
             "people": request.people,
@@ -35,7 +44,7 @@ class ChatService:
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
             "system_prompt": system_prompt,
-            "model_name" : model
+            "model_name": model
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
@@ -68,7 +77,13 @@ class ChatService:
 
             return result
         except json.JSONDecodeError:
-            logger.warning("Failed to parse LLM response as JSON", extra={"event": "PARSE_ERROR", "response_preview": response[:200]})
+            logger.warning(
+                "Failed to parse LLM response as JSON",
+                extra={
+                    "event": "PARSE_ERROR",
+                    "response_preview": response[:200]
+                }
+            )
             raise InvalidResponseFormat()
 
     def process_request(
@@ -85,16 +100,16 @@ class ChatService:
 
         Args:
             request: Validated ChatRequest from API layer
-            temperature: Temperature for generation (from settings if None)
+            temperature: Temperature for generation
             max_output_tokens: Maximum output tokens
-            system_prompt: Custom system prompt (uses default from settings if None)
+            system_prompt: Custom system prompt
 
         Returns:
             ChatResponse with products and optional steps
         """
         if temperature is None:
             temperature = self.settings.deepseek_temperature
-        
+
         if max_output_tokens is None:
             max_output_tokens = self.settings.deepseek_max_output_tokens
 
@@ -109,14 +124,32 @@ class ChatService:
             "max_output_tokens": max_output_tokens,
         })
 
-        cache_key = self._generate_cache_key(request, temperature, max_output_tokens, system_prompt, self.settings.yandex_cloud_model)
+        cache_key = self._generate_cache_key(
+            request,
+            temperature,
+            max_output_tokens,
+            system_prompt,
+            self.settings.yandex_cloud_model
+        )
 
         cached_response = self.cache.get(cache_key)
         if cached_response:
-            logger.info("Cache hit", extra={"event": "CACHE_HIT", "cache_key": cache_key})
+            logger.info(
+                "Cache hit",
+                extra={
+                    "event": "CACHE_HIT",
+                    "cache_key": cache_key
+                }
+            )
             return ChatResponse(**cached_response)
 
-        logger.info("Cache miss", extra={"event": "CACHE_MISS", "cache_key": cache_key})
+        logger.info(
+            "Cache miss",
+            extra={
+                "event": "CACHE_MISS",
+                "cache_key": cache_key
+            }
+        )
 
         max_retries = 3
         wait_times = [1, 3]
@@ -129,9 +162,11 @@ class ChatService:
                     "max_output_tokens": max_output_tokens,
                     "attempt": attempt + 1,
                 })
-                input_text = f"Блюдо: {request.dish}. Количество персон: {request.people}."
+                dish_part = f"Блюдо: {request.dish}."
+                people_part = f"Количество персон: {request.people}."
+                input_text = f"{dish_part} {people_part}"
                 if request.use_steps:
-                    input_text += f" Пошаговый рецепт."
+                    input_text += " Пошаговый рецепт."
                 llm_response = self.client.generate(
                     input_text=input_text,
                     temperature=temperature,
@@ -144,7 +179,10 @@ class ChatService:
                     "response_preview": llm_response[:200],
                 })
 
-                parsed = self._parse_llm_response(llm_response, request.use_steps)
+                parsed = self._parse_llm_response(
+                    llm_response,
+                    request.use_steps
+                )
 
                 response = ChatResponse(
                     products=parsed.get('products', []),
@@ -157,24 +195,46 @@ class ChatService:
                     ttl=cache_ttl,
                 )
 
-                logger.info("Chat request completed", extra={
-                    "event": "RESPONSE",
-                    "products_count": len(response.products),
-                    "steps_count": len(response.steps) if response.steps else 0,
-                })
+                logger.info(
+                    "Chat request completed",
+                    extra={
+                        "event": "RESPONSE",
+                        "products_count": len(response.products),
+                        "steps_count": (
+                            len(response.steps)
+                            if response.steps
+                            else 0
+                        ),
+                    }
+                )
 
                 return response
 
             except Exception as e:
-                logger.error("LLM call failed", extra={
-                    "event": "ERROR",
-                    "attempt": attempt + 1,
-                    "max_retries": max_retries,
-                    "error": str(e),
-                })
+                logger.error(
+                    "LLM call failed",
+                    extra={
+                        "event": "ERROR",
+                        "attempt": attempt + 1,
+                        "max_retries": max_retries,
+                        "error": str(e),
+                    }
+                )
 
-                if not isinstance(e, (openai.APITimeoutError, openai.RateLimitError, openai.InternalServerError)):
-                    logger.error("LLM Service Error", extra={"event": "LLM Service Error"})
+                if not isinstance(
+                    e,
+                    (
+                        openai.APITimeoutError,
+                        openai.RateLimitError,
+                        openai.InternalServerError
+                    )
+                ):
+                    logger.error(
+                        "LLM Service Error",
+                        extra={
+                            "event": "LLM Service Error"
+                        }
+                    )
                     raise
 
                 if attempt < max_retries - 1:
@@ -185,11 +245,14 @@ class ChatService:
                     })
                     time.sleep(wait_time)
                 else:
-                    logger.warning("LLM processing failed after all retries", extra={
-                        "event": "FAILED",
-                        "max_retries": max_retries,
-                        "error": str(e),
-                    })
+                    logger.warning(
+                        "LLM processing failed after all retries",
+                        extra={
+                            "event": "FAILED",
+                            "max_retries": max_retries,
+                            "error": str(e),
+                        }
+                    )
                     raise
 
 

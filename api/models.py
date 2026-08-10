@@ -11,7 +11,10 @@ class ChatRequest(BaseModel):
 
     people: int = Field(..., ge=1, le=1000, description="Количество персон")
 
-    use_steps: Optional[bool] = Field(default=None, description="Использовать шаги приготовления")
+    use_steps: Optional[bool] = Field(
+        default=None,
+        description="Использовать шаги приготовления"
+    )
 
     @field_validator('dish')
     @classmethod
@@ -26,7 +29,10 @@ class ChatResponse(BaseModel):
 
     products: list[str] = Field(..., description="Список продуктов")
 
-    steps: Optional[list[str]] = Field(default=None, description="Список шагов приготовления")
+    steps: Optional[list[str]] = Field(
+        default=None,
+        description="Список шагов приготовления"
+    )
 
 
 class AuthError(BaseModel):
