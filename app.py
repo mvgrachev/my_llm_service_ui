@@ -48,56 +48,48 @@ if submitted:
         st.warning("⚠️ Пожалуйста, введите название блюда.")
     else:
         with st.spinner("⏳ Обработка запроса..."):
-            while True:
-                try:
-                    response = requests.post(
-                        API_URL,
-                        json={
-                            "dish": dish.strip(),
-                            "people": people,
-                            "use_steps": use_steps,
-                        },
-                        timeout=60,
-                    )
-                    data = response.json()
+            try:
+                response = requests.post(
+                    API_URL,
+                    json={
+                        "dish": dish.strip(),
+                        "people": people,
+                        "use_steps": use_steps,
+                    },
+                    timeout=60,
+                )
+                data = response.json()
 
-                    if response.status_code != 200:
-                        error_detail = data.get("detail", "Неизвестная ошибка")
-                        st.error(error_detail)
-                        break
+                if response.status_code != 200:
+                    error_detail = data.get("detail", "Неизвестная ошибка")
+                    st.error(error_detail)
 
-                    response.raise_for_status()
+                response.raise_for_status()
 
-                    st.success("✅ Запрос выполнен успешно!")
+                st.success("✅ Запрос выполнен успешно!")
 
-                    st.markdown("### 🛒 Продукты")
-                    products = data.get("products", [])
-                    if products:
-                        for i, product in enumerate(products, 1):
-                            st.markdown(f"{i}. {product}")
-                    else:
-                        st.info("Продукты не найдены.")
+                st.markdown("### 🛒 Продукты")
+                products = data.get("products", [])
+                if products:
+                    for i, product in enumerate(products, 1):
+                        st.markdown(f"{i}. {product}")
+                else:
+                    st.info("Продукты не найдены.")
 
-                    steps = data.get("steps")
-                    if steps and use_steps:
-                        st.markdown("### 📝 Шаги приготовления")
-                        for i, step in enumerate(steps, 1):
-                            st.markdown(f"**Шаг {i}:** {step}")
+                steps = data.get("steps")
+                if steps and use_steps:
+                    st.markdown("### 📝 Шаги приготовления")
+                    for i, step in enumerate(steps, 1):
+                        st.markdown(f"**Шаг {i}:** {step}")
 
-                    break
-
-                except requests.exceptions.ConnectionError:
-                    st.error(
-                        "❌ Не удалось подключиться к серверу. "
-                        "Убедитесь, что FastAPI запущен на порту 8000."
-                    )
-                    break
-                except requests.exceptions.Timeout:
-                    st.error("❌ Превышено время ожидания ответа от сервера.")
-                    break
-                except requests.exceptions.HTTPError as e:
-                    st.error(f"❌ Ошибка сервера: {e}")
-                    break
-                except Exception as e:
-                    st.error(f"❌ Произошла ошибка: {str(e)}")
-                    break
+            except requests.exceptions.ConnectionError:
+                st.error(
+                    "❌ Не удалось подключиться к серверу. "
+                    "Убедитесь, что FastAPI запущен на порту 8000."
+                )
+            except requests.exceptions.Timeout:
+                st.error("❌ Превышено время ожидания ответа от сервера.")
+            except requests.exceptions.HTTPError as e:
+                st.error(f"❌ Ошибка сервера: {e}")
+            except Exception as e:
+                st.error(f"❌ Произошла ошибка: {str(e)}")
