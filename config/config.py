@@ -49,6 +49,13 @@ class BaseSettings:
             "http://localhost:8000"
         )
 
+        self.fastapi_timeout: int = int(
+            os.getenv(
+                "FASTAPI_TIMEOUT",
+                "60"
+            )
+        )
+
 
 class DevSettings(BaseSettings):
     """Development environment overrides."""

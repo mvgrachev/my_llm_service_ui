@@ -15,6 +15,7 @@ st.set_page_config(
 # Backend API URL — uses settings.fastapi_url
 FASTAPI_URL = settings.fastapi_url
 API_URL = f"{FASTAPI_URL}/chat"
+FASTAPI_TIMEOUT = settings.fastapi_timeout
 
 st.title("🍳 Подбор продуктов и рецептов")
 st.markdown(
@@ -56,15 +57,16 @@ if submitted:
                         "people": people,
                         "use_steps": use_steps,
                     },
-                    timeout=60,
+                    timeout=FASTAPI_TIMEOUT,
                 )
+
+                response.raise_for_status()
+
                 data = response.json()
 
                 if response.status_code != 200:
                     error_detail = data.get("detail", "Неизвестная ошибка")
                     st.error(error_detail)
-
-                response.raise_for_status()
 
                 st.success("✅ Запрос выполнен успешно!")
 
