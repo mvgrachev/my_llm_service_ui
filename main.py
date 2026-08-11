@@ -43,22 +43,6 @@ async def health_check():
     return {"status": "healthy"}
 
 
-async def run_server(host: str = None, port: int = None):
-    """Run the FastAPI server"""
-    host = host or settings.app_host
-    port = port or settings.app_port
-    logger.info(f"Starting LLM Service on {host}:{port}...")
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
-
-
-async def main():
-    """Main application entry point"""
-    logger.info("Starting LLM Service...")
-    # Application startup logic here
-    pass
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=settings.app_host, port=settings.app_port)
