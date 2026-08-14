@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
 """Main entry point for the LLM Service."""
-import os
-import sys
-import asyncio
 import logging
-from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI
 from dotenv import load_dotenv
+from api import router
+from config import settings
+# Configure structured JSON logging (sets up root handlers once)
+from config.logging_config import get_logger
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging with file and console output
-log_format = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logger = get_logger('llm_service')
 
-# Create logger
-logger = logging.getLogger('llm_service')
-logger.setLevel(logging.INFO)
-
-# Console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(log_format)
-logger.addHandler(console_handler)
-
-# File handler with rotation
-log_file = os.getenv('LOG_FILE', 'app.log')
-file_handler = RotatingFileHandler(
-    log_file,
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=5
-)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(log_format)
-logger.addHandler(file_handler)
+logger.info("Application environment: %s", settings.env)
 
 # Suppress verbose logs from external libraries
 logging.getLogger('httpx').setLevel(logging.WARNING)
@@ -49,7 +27,6 @@ app = FastAPI(
 )
 
 # Import and include API router
-from api import router
 app.include_router(router)
 
 
@@ -66,19 +43,6 @@ async def health_check():
     return {"status": "healthy"}
 
 
-async def run_server(host: str = "0.0.0.0", port: int = 8000):
-    """Run the FastAPI server"""
-    logger.info(f"Starting LLM Service on {host}:{port}...")
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
-
-async def main():
-    """Main application entry point"""
-    logger.info("Starting LLM Service...")
-    # Application startup logic here
-    pass
-
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=settings.app_host, port=settings.app_port)

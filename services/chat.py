@@ -1,84 +1,90 @@
 from api.models import ChatRequest, ChatResponse
-from llm import deepseek_client
+from llm import get_deepseek_client
 from config import settings
+from config.logging_config import get_logger
 from cache import cache
 from typing import Optional
 import json
 import hashlib
 import time
-import logging
-import os
-import socket
+import openai
 
 
-logger = logging.getLogger('llm_service.chat')
+logger = get_logger('llm_service.chat')
 
 
-class UnauthorizedError(Exception):
-    """Raised when LLM API key is invalid or expired."""
+class InvalidResponseFormat(Exception):
+    """Invalid Response Format From LLM"""
+
+
+class EmptyResponse(Exception):
+    """Empty Response From LLM"""
 
 
 class ChatService:
     """Service for handling chat interactions with LLM."""
 
-    def __init__(self, client=None, settings=None, cache_client=None):
-        self.client = client or deepseek_client
-        self.settings = settings or settings
+    def __init__(self, client=None, settings_obj=None, cache_client=None):
+        self.client = client or get_deepseek_client()
+        self.settings = settings_obj or settings
         self.cache = cache_client or cache
 
-    def _generate_cache_key(self, request: ChatRequest, temperature: float, max_output_tokens: int) -> str:
+    def _generate_cache_key(
+        self,
+        request: ChatRequest,
+        temperature: float,
+        max_output_tokens: int,
+        system_prompt: str,
+        model: str
+    ) -> str:
         key_data = {
             "dish": request.dish,
             "people": request.people,
             "use_steps": request.use_steps,
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
+            "system_prompt": system_prompt,
+            "model_name": model
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return f"chat:{hashlib.md5(key_str.encode()).hexdigest()}"
 
-    def _check_network(self, timeout: Optional[int] = None) -> bool:
-        timeout = timeout if timeout is not None else int(os.getenv("NETWORK_CHECK_TIMEOUT", "5"))
-        try:
-            socket.setdefaulttimeout(timeout)
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
-            return True
-        except socket.error:
-            return False
-
-    def _parse_llm_response(self, response: str) -> dict:
+    def _parse_llm_response(self, response: str, use_steps: bool) -> dict:
         """Parse LLM response and extract products and steps fields."""
         try:
+            import re
+            match = re.search(r'\{.*\}', response, re.DOTALL)
+            if match:
+                response = match.group(0)
             data = json.loads(response)
             result = {}
 
             for key in ['products', 'продукты', 'ингредиенты', 'ingredients']:
                 if key in data:
-                    result['products'] = data[key]
-                    break
+                    for item in data[key]:
+                        if item.strip():
+                            result.setdefault('products', []).append(item)
 
-            for key in ['steps', 'шаги', 'instructions', 'instruction']:
-                if key in data:
-                    result['steps'] = data[key]
-                    break
+            if use_steps:
+                for key in ['steps', 'шаги', 'instructions', 'instruction']:
+                    if key in data:
+                        for item in data[key]:
+                            if item.strip():
+                                result.setdefault('steps', []).append(item)
+
+            if not result.get('products'):
+                raise EmptyResponse()
 
             return result
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse LLM response as JSON: {response[:200]}...")
-            return {}
-
-    def _create_fallback_response(self, error_message: str) -> ChatResponse:
-        return ChatResponse(
-            products=[],
-            steps=None,
-        )
-
-    def _create_error_response(self, error_message: str) -> ChatResponse:
-        raise UnauthorizedError(error_message)
-
-    def _is_unauthorized_error(self, error_str: str) -> bool:
-        """Check if the error is due to an invalid/unauthenticated API key."""
-        return 'unauthenticated' in error_str or 'unauthorized' in error_str or 'invalid api key' in error_str
+            logger.warning(
+                "Failed to parse LLM response as JSON",
+                extra={
+                    "event": "PARSE_ERROR",
+                    "response_preview": response[:200]
+                }
+            )
+            raise InvalidResponseFormat()
 
     def process_request(
         self,
@@ -94,41 +100,73 @@ class ChatService:
 
         Args:
             request: Validated ChatRequest from API layer
-            temperature: Temperature for generation (from env DEEPSEEK_TEMPERATURE if None)
+            temperature: Temperature for generation
             max_output_tokens: Maximum output tokens
-            system_prompt: Custom system prompt (uses default if None)
+            system_prompt: Custom system prompt
 
         Returns:
             ChatResponse with products and optional steps
         """
         if temperature is None:
-            temperature = self.settings.deepseek_temperature if self.settings else float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
+            temperature = self.settings.deepseek_temperature
 
-        cache_ttl = self.settings.deepseek_cache_ttl if self.settings else int(os.getenv("DEEPSEEK_CACHE_TTL", "600"))
+        if max_output_tokens is None:
+            max_output_tokens = self.settings.deepseek_max_output_tokens
 
-        logger.info(
-            f"[REQUEST] Time: {time.strftime('%Y-%m-%d %H:%M:%S')}, "
-            f"Dish: {request.dish}, People: {request.people}, Use steps: {request.use_steps}"
+        cache_ttl = self.settings.deepseek_cache_ttl
+
+        logger.info("Processing chat request", extra={
+            "event": "REQUEST",
+            "dish": request.dish,
+            "people": request.people,
+            "use_steps": request.use_steps,
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+        })
+
+        cache_key = self._generate_cache_key(
+            request,
+            temperature,
+            max_output_tokens,
+            system_prompt,
+            self.settings.yandex_cloud_model
         )
-
-        cache_key = self._generate_cache_key(request, temperature, max_output_tokens)
 
         cached_response = self.cache.get(cache_key)
         if cached_response:
-            logger.info(f"[CACHE HIT] Key: {cache_key}, Response: {json.dumps(cached_response)}")
+            logger.info(
+                "Cache hit",
+                extra={
+                    "event": "CACHE_HIT",
+                    "cache_key": cache_key
+                }
+            )
             return ChatResponse(**cached_response)
 
-        logger.info(f"[CACHE MISS] Key: {cache_key}")
+        logger.info(
+            "Cache miss",
+            extra={
+                "event": "CACHE_MISS",
+                "cache_key": cache_key
+            }
+        )
 
         max_retries = 3
-        wait_times = [1, 3, 5]
+        wait_times = [1, 3]
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries):
             try:
-                logger.info(f"[PROMPT] Temperature: {temperature}, Max tokens: {max_output_tokens}")
-                input_text = f"Блюдо: {request.dish}. Количество персон: {request.people}."
+                logger.info("Sending prompt to LLM", extra={
+                    "event": "PROMPT",
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
+                    "attempt": attempt + 1,
+                })
+                dish_part = f"Блюдо: {request.dish}."
+                people_part = f"Количество персон: {request.people}."
+                input_text = f"{dish_part} {people_part}"
                 if request.use_steps:
-                    input_text += f" Пошаговый рецепт."
+                    input_text += " Пошаговый рецепт."
                 llm_response = self.client.generate(
                     input_text=input_text,
                     temperature=temperature,
@@ -136,9 +174,15 @@ class ChatService:
                     max_output_tokens=max_output_tokens,
                 )
 
-                logger.info(f"[LLM RESPONSE] Raw response: {llm_response[:200]}...")
+                logger.info("Received LLM response", extra={
+                    "event": "LLM_RESPONSE",
+                    "response_preview": llm_response[:200],
+                })
 
-                parsed = self._parse_llm_response(llm_response)
+                parsed = self._parse_llm_response(
+                    llm_response,
+                    request.use_steps
+                )
 
                 response = ChatResponse(
                     products=parsed.get('products', []),
@@ -152,48 +196,64 @@ class ChatService:
                 )
 
                 logger.info(
-                    f"[RESPONSE] Products: {len(response.products)}, "
-                    f"Steps: {len(response.steps) if response.steps else 0}, "
-                    f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    "Chat request completed",
+                    extra={
+                        "event": "RESPONSE",
+                        "products_count": len(response.products),
+                        "steps_count": (
+                            len(response.steps)
+                            if response.steps
+                            else 0
+                        ),
+                    }
                 )
 
                 return response
 
             except Exception as e:
-                error_str = str(e).lower()
-                logger.error(f"[ERROR] Attempt {attempt + 1}/{max_retries}: {error_str}")
-
-                # If the auth error is detected, break immediately — no point retrying
-                if self._is_unauthorized_error(error_str):
-                    logger.error("[AUTH FAILED] Invalid or expired API key. Stopping retries.")
-                    return self._create_error_response(
-                        "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
-                    )
-
-                is_network_error = (
-                    'network' in error_str
-                    or 'connection' in error_str
-                    or 'timeout' in error_str
-                    or 'refused' in error_str
+                logger.error(
+                    "LLM call failed",
+                    extra={
+                        "event": "ERROR",
+                        "attempt": attempt + 1,
+                        "max_retries": max_retries,
+                        "error": str(e),
+                    }
                 )
 
-                if is_network_error and not self._check_network():
-                    fallback_response = self._create_fallback_response(f"Network error: {str(e)}")
-                    self.cache.set(
-                        cache_key,
-                        fallback_response.model_dump(),
-                        ttl=60,
+                if not isinstance(
+                    e,
+                    (
+                        openai.APITimeoutError,
+                        openai.RateLimitError,
+                        openai.InternalServerError
                     )
-                    return fallback_response
+                ):
+                    logger.error(
+                        "LLM Service Error",
+                        extra={
+                            "event": "LLM Service Error"
+                        }
+                    )
+                    raise
 
-                if attempt < max_retries:
+                if attempt < max_retries - 1:
                     wait_time = wait_times[attempt]
-                    logger.warning(f"[RETRY] Waiting {wait_time} seconds before retry...")
+                    logger.warning("Retrying after delay", extra={
+                        "event": "RETRY",
+                        "wait_seconds": wait_time,
+                    })
                     time.sleep(wait_time)
                 else:
-                    fallback_response = self._create_fallback_response(f"Try out: {str(e)}")
-                    logger.warning(f"[FAILED] LLM processing error after {max_retries} attempts: {str(e)}")
-                    return fallback_response
+                    logger.warning(
+                        "LLM processing failed after all retries",
+                        extra={
+                            "event": "FAILED",
+                            "max_retries": max_retries,
+                            "error": str(e),
+                        }
+                    )
+                    raise
 
 
 # Default instance for convenience

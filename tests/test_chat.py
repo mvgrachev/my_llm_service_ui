@@ -1,24 +1,6 @@
 """Unit tests for chat endpoint and service."""
-
-import os
-import sys
-
-# Set up environment variables before any imports
-os.environ['YANDEX_CLOUD_FOLDER'] = 'test-folder-id'
-os.environ['YANDEX_CLOUD_API_KEY'] = 'test-api-key'
-os.environ['YANDEX_CLOUD_MODEL'] = 'deepseek-v4-flash/latest'
-os.environ['APP_ENV'] = 'test'
-os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
-
-# Clear cached imports to reload with new env vars
-for module_name in list(sys.modules.keys()):
-    if 'llm' in module_name or 'services' in module_name or 'api' in module_name:
-        del sys.modules[module_name]
-
 import pytest
-import socket
-from unittest.mock import Mock, patch, MagicMock
-from fastapi import HTTPException
+from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 from main import app
@@ -133,14 +115,17 @@ class TestChatService:
         assert service.client is not None
         assert service.cache is not None
 
-
     def test_init_custom(self):
         """Test ChatService initialization with custom dependencies."""
         mock_client = Mock()
         mock_settings = Mock()
         mock_cache = Mock()
 
-        service = ChatService(client=mock_client, settings=mock_settings, cache_client=mock_cache)
+        service = ChatService(
+            client=mock_client,
+            settings_obj=mock_settings,
+            cache_client=mock_cache
+        )
         assert service.client == mock_client
         assert service.settings == mock_settings
         assert service.cache == mock_cache
@@ -150,7 +135,13 @@ class TestChatService:
         service = ChatService()
         request = ChatRequest(dish="Паста", people=2, use_steps=False)
 
-        key = service._generate_cache_key(request, temperature=0.3, max_output_tokens=1500)
+        key = service._generate_cache_key(
+            request,
+            temperature=0.3,
+            max_output_tokens=1500,
+            system_prompt="System prompt",
+            model="Model"
+        )
 
         assert key.startswith("chat:")
         assert len(key) == 37  # "chat:" + 32 hex chars
@@ -161,8 +152,20 @@ class TestChatService:
         request1 = ChatRequest(dish="Паста", people=2)
         request2 = ChatRequest(dish="Борщ", people=2)
 
-        key1 = service._generate_cache_key(request1, 0.3, 1500)
-        key2 = service._generate_cache_key(request2, 0.3, 1500)
+        key1 = service._generate_cache_key(
+            request1,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
+        key2 = service._generate_cache_key(
+            request2,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
 
         assert key1 != key2
 
@@ -172,8 +175,20 @@ class TestChatService:
         request1 = ChatRequest(dish="Паста", people=2)
         request2 = ChatRequest(dish="Паста", people=4)
 
-        key1 = service._generate_cache_key(request1, 0.3, 1500)
-        key2 = service._generate_cache_key(request2, 0.3, 1500)
+        key1 = service._generate_cache_key(
+            request1,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
+        key2 = service._generate_cache_key(
+            request2,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
 
         assert key1 != key2
 
@@ -182,35 +197,46 @@ class TestChatService:
         service = ChatService()
         request = ChatRequest(dish="Паста", people=2, use_steps=True)
 
-        key1 = service._generate_cache_key(request, 0.3, 1500)
-        key2 = service._generate_cache_key(request, 0.3, 1500)
+        key1 = service._generate_cache_key(
+            request,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
+        key2 = service._generate_cache_key(
+            request,
+            0.3,
+            1500,
+            "System prompt",
+            "Model"
+        )
 
         assert key1 == key2
-
-    def test_check_network_available(self):
-        """Test network check when network is available."""
-        service = ChatService()
-
-        with patch('socket.socket') as mock_socket:
-            mock_socket.return_value.connect.return_value = None
-            result = service._check_network(timeout=1)
-            assert result is True
-
-    def test_check_network_unavailable(self):
-        """Test network check when network is unavailable."""
-        service = ChatService()
-
-        with patch('socket.socket') as mock_socket:
-            mock_socket.return_value.connect.side_effect = socket.error()
-            result = service._check_network(timeout=1)
-            assert result is False
 
     def test_parse_llm_response_json(self):
         """Test parsing LLM response with products and steps."""
         service = ChatService()
-        response = '{"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}'
+        response = '{"products": ["мука", "яйца"], \
+        "steps": ["смешать", "выпечь"]}'
 
-        parsed = service._parse_llm_response(response)
+        use_steps = True
+
+        parsed = service._parse_llm_response(response, use_steps)
+
+        assert parsed['products'] == ["мука", "яйца"]
+        assert parsed['steps'] == ["смешать", "выпечь"]
+
+    def test_parse_llm_response_incorrect_json(self):
+        """Test parsing LLM response with products and steps."""
+        service = ChatService()
+        response = 'Dscription: test test test \
+        {"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]} \
+        description test test test'
+
+        use_steps = True
+
+        parsed = service._parse_llm_response(response, use_steps)
 
         assert parsed['products'] == ["мука", "яйца"]
         assert parsed['steps'] == ["смешать", "выпечь"]
@@ -219,8 +245,9 @@ class TestChatService:
         """Test parsing LLM response with only products."""
         service = ChatService()
         response = '{"ingredients": ["мука", "яйца"]}'
+        use_steps = False
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response, use_steps)
 
         assert parsed['products'] == ["мука", "яйца"]
         assert 'steps' not in parsed
@@ -228,40 +255,32 @@ class TestChatService:
     def test_parse_llm_response_russian_keys(self):
         """Test parsing LLM response with Russian keys."""
         service = ChatService()
-        response = '{"продукты": ["хлеб", "масло"], "шаги": ["нарезать", "поджарить"]}'
+        response = '{\
+            "продукты": ["хлеб", "масло"],\
+            "шаги": ["нарезать", "поджарить"]\
+        }'
+        use_steps = True
 
-        parsed = service._parse_llm_response(response)
+        parsed = service._parse_llm_response(response, use_steps)
 
         assert parsed['products'] == ["хлеб", "масло"]
         assert parsed['steps'] == ["нарезать", "поджарить"]
 
-    def test_parse_llm_response_invalid_json(self):
-        """Test parsing invalid JSON."""
-        service = ChatService()
-        response = 'not json at all'
-
-        parsed = service._parse_llm_response(response)
-
-        assert parsed == {}
-
-    def test_create_fallback_response(self):
-        """Test fallback response creation."""
-        service = ChatService()
-
-        fallback = service._create_fallback_response("Network error")
-
-        assert isinstance(fallback, ChatResponse)
-        assert fallback.products == []
-        assert fallback.steps is None
-
     def test_process_request_cache_hit(self):
         """Test processing request with cache hit."""
         service = ChatService()
-        request = ChatRequest(dish="Паста", people=2)
+        request = ChatRequest(dish="Паста", people=2, use_steps=True)
 
-        cached_data = {"products": ["мука", "яйца"], "steps": ["смешать", "выпечь"]}
+        cached_data = {
+            "products": ["мука", "яйца"],
+            "steps": ["смешать", "выпечь"]
+        }
 
-        with patch.object(service.cache, 'get', return_value=cached_data) as mock_get:
+        with patch.object(
+            service.cache,
+            'get',
+            return_value=cached_data
+        ) as mock_get:
             response = service.process_request(request)
 
             assert isinstance(response, ChatResponse)
@@ -276,7 +295,7 @@ class TestChatEndpoint:
     @pytest.fixture
     def client(self):
         """Create test client."""
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app, raise_server_exceptions=True)
 
     def test_chat_endpoint_success(self, client):
         """Test successful chat endpoint request."""
@@ -287,13 +306,20 @@ class TestChatEndpoint:
             steps=["отварить пасту", "обжарить бекон", "смешать"],
         )
 
-        with patch('services.chat.chat_service.process_request', return_value=mock_response):
+        with patch(
+            'services.chat.chat_service.process_request',
+            return_value=mock_response
+        ):
             response = client.post("/chat", json=request_data)
 
             assert response.status_code == 200
             data = response.json()
             assert data['products'] == ["мука", "яйца", "бекон"]
-            assert data['steps'] == ["отварить пасту", "обжарить бекон", "смешать"]
+            assert data['steps'] == [
+                "отварить пасту",
+                "обжарить бекон",
+                "смешать"
+            ]
 
     def test_chat_endpoint_success_with_steps_false(self, client):
         """Test chat endpoint with steps disabled."""
@@ -304,7 +330,10 @@ class TestChatEndpoint:
             steps=None,
         )
 
-        with patch('services.chat.chat_service.process_request', return_value=mock_response):
+        with patch(
+            'services.chat.chat_service.process_request',
+            return_value=mock_response
+        ):
             response = client.post("/chat", json=request_data)
 
             assert response.status_code == 200
@@ -356,12 +385,135 @@ class TestChatEndpoint:
         """Test chat endpoint with LLM error."""
         request_data = {"dish": "Паста", "people": 2}
 
-        with patch('services.chat.chat_service.process_request', side_effect=Exception("LLM Error")):
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=Exception("LLM Error")
+        ):
             response = client.post("/chat", json=request_data)
 
             assert response.status_code == 500
             data = response.json()
-            assert "Internal server error" in data['detail']
+            error_string = (
+                "Непредвиденная ошибка. "
+                "Попробуйте позже или обратитесь в техподдержку."
+            )
+            assert error_string in data['detail']
+
+    def test_chat_endpoint_timeout_error(self, client):
+        """Test chat endpoint with openai.APITimeoutError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.APITimeoutError("Request timed out")
+        ):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 429
+            data = response.json()
+            assert "Время ожидания ответа истекло" in data['detail']
+
+    def test_chat_endpoint_connection_error(self, client):
+        """Test chat endpoint with openai.APIConnectionError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_request = type('Request', (), {'url': 'http://test'})()
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.APIConnectionError(
+                request=mock_request
+            )
+        ):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 503
+            data = response.json()
+            assert "Сервис временно недоступен" in data['detail']
+
+    def test_chat_endpoint_authentication_error(self, client):
+        """Test chat endpoint with openai.AuthenticationError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 401
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.AuthenticationError(
+                "Invalid API key",
+                response=mock_response,
+                body=None
+            )
+        ):
+            response = client.post("/chat", json=request_data)
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "Ошибка авторизации" in data['detail']
+
+    def test_chat_endpoint_permission_denied_error(self, client):
+        """Test chat endpoint with openai.PermissionDeniedError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 401
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.PermissionDeniedError(
+                "Invalid API key",
+                response=mock_response,
+                body=None
+            )
+        ):
+            response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "Ошибка авторизации" in data['detail']
+
+    def test_chat_endpoint_rate_limit_error(self, client):
+        """Test chat endpoint with openai.RateLimitError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 429
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.RateLimitError(
+                "Rate limit exceeded",
+                response=mock_response,
+                body=None
+            )
+        ):
+            response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 429
+        data = response.json()
+        assert "Превышена частота обращения к сервису" in data['detail']
+
+    def test_chat_endpoint_internal_server_error(self, client):
+        """Test chat endpoint with openai.InternalServerError."""
+        import openai
+        request_data = {"dish": "Паста", "people": 2}
+        mock_response = Mock()
+        mock_response.request = Mock()
+        mock_response.status_code = 500
+        with patch(
+            'services.chat.chat_service.process_request',
+            side_effect=openai.InternalServerError(
+                "Internal server error",
+                response=mock_response,
+                body=None
+            )
+        ):
+            response = client.post("/chat", json=request_data)
+
+        assert response.status_code == 500
+        data = response.json()
+        assert "Ошибка LLM" in data['detail']
 
 
 class TestCacheClient:
@@ -379,7 +531,11 @@ class TestCacheClient:
         """Test setting and getting value."""
         cache = CacheClient()
 
-        cache.set("test_key", {"products": ["мука"], "steps": ["смешать"]}, ttl=60)
+        cache.set(
+            "test_key",
+            {"products": ["мука"], "steps": ["смешать"]},
+            ttl=60
+        )
         result = cache.get("test_key")
 
         assert result is not None
@@ -403,12 +559,129 @@ class TestCacheClient:
 
         assert result is False
 
-    def test_delete_key(self):
-        """Test deleting key."""
-        cache = CacheClient()
 
-        cache.set("delete_key", {"test": "value"})
-        cache.delete("delete_key")
-        result = cache.exists("delete_key")
+class TestEmptyResponse:
+    """Tests for EmptyResponse exception."""
 
-        assert result is False
+    def test_exception_is_raised(self):
+        """Test that EmptyResponse is a subclass of Exception."""
+        from services.chat import EmptyResponse
+
+        assert issubclass(EmptyResponse, Exception)
+        exc = EmptyResponse()
+        assert isinstance(exc, Exception)
+
+    def test_exception_message(self):
+        """Test EmptyResponse can carry a message."""
+        from services.chat import EmptyResponse
+
+        exc = EmptyResponse("No products found")
+        assert str(exc) == "No products found"
+
+    def test_parse_llm_response_missing_products_raises_empty_response(self):
+        """Test that missing 'products' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"steps": ["смешать", "выпечь"]}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_empty_products_raises_empty_response(self):
+        """Test that empty string 'products' raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"products": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_products_whitespace_only_raises_empty(self):
+        """Test that whitespace-only 'products' raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+        service = ChatService()
+        response = '{"products": "   "}'
+        use_steps = False
+        # products is whitespace only, so EmptyResponse should be raised
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_empty_ingredients_raises_empty_response(self):
+        """Test that empty 'ingredients' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"ingredients": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_empty_products_rus_raises_empty_response(self):
+        """Test that empty 'продукты' key raises EmptyResponse."""
+        from services.chat import ChatService, EmptyResponse
+
+        service = ChatService()
+        response = '{"продукты": ""}'
+        use_steps = False
+
+        with pytest.raises(EmptyResponse):
+            service._parse_llm_response(response, use_steps)
+
+
+class TestInvalidResponseFormat:
+    """Tests for InvalidResponseFormat exception."""
+
+    def test_exception_is_raised(self):
+        """Test that InvalidResponseFormat is a subclass of Exception."""
+        from services.chat import InvalidResponseFormat
+
+        assert issubclass(InvalidResponseFormat, Exception)
+        exc = InvalidResponseFormat()
+        assert isinstance(exc, Exception)
+
+    def test_exception_message(self):
+        """Test InvalidResponseFormat can carry a message."""
+        from services.chat import InvalidResponseFormat
+
+        exc = InvalidResponseFormat("Invalid JSON format")
+        assert str(exc) == "Invalid JSON format"
+
+    def test_parse_llm_response_completely_invalid_json_raises(self):
+        """Test that completely invalid JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        response = 'not json at all'
+        use_steps = False
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_malformed_json_raises(self):
+        """Test that malformed JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        # missing closing braces
+        response = '{"products": "мука", "steps": ["смешать"}'
+        use_steps = True
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)
+
+    def test_parse_llm_response_no_braces_invalid_json_raises(self):
+        """Test that text with no braces \
+        that is not valid JSON raises InvalidResponseFormat."""
+        from services.chat import ChatService, InvalidResponseFormat
+
+        service = ChatService()
+        response = 'Сегодня отличная погода, пойдем гулять'
+        use_steps = False
+
+        with pytest.raises(InvalidResponseFormat):
+            service._parse_llm_response(response, use_steps)

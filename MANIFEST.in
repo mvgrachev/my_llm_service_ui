@@ -1,0 +1,11 @@
+include README.md
+include requirements.txt
+include main.py
+include start_server.py
+include __main__.py
+include api/*.py
+include config/*.py
+include llm/*.py
+include services/*.py
+include cache/*.py
+recursive-include tests *.py

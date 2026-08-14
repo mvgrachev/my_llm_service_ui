@@ -3,6 +3,7 @@
 
 import streamlit as st
 import requests
+from config import settings
 
 # Page config
 st.set_page_config(
@@ -11,11 +12,16 @@ st.set_page_config(
     layout="centered",
 )
 
-# Backend API URL
-API_URL = "http://localhost:8000/chat"
+# Backend API URL — uses settings.fastapi_url
+FASTAPI_URL = settings.fastapi_url
+API_URL = f"{FASTAPI_URL}/chat"
+FASTAPI_TIMEOUT = settings.fastapi_timeout
 
 st.title("🍳 Подбор продуктов и рецептов")
-st.markdown("Укажите блюдо, и сервис подскажет нужные продукты и шаги приготовления.")
+st.markdown(
+    "Укажите блюдо, и сервис подскажет "
+    "нужные продукты и шаги приготовления."
+)
 
 # Form inputs
 with st.form("chat_form"):
@@ -32,65 +38,60 @@ with st.form("chat_form"):
     with col2:
         use_steps = st.checkbox("Показать шаги приготовления", value=True)
 
-    submitted = st.form_submit_button("Отправить", type="primary", use_container_width=True)
+    submitted = st.form_submit_button(
+        "Отправить",
+        type="primary",
+        use_container_width=True
+    )
 
 if submitted:
     if not dish.strip():
         st.warning("⚠️ Пожалуйста, введите название блюда.")
     else:
         with st.spinner("⏳ Обработка запроса..."):
-            while True:
-                try:
-                    response = requests.post(
-                        API_URL,
-                        json={
-                            "dish": dish.strip(),
-                            "people": people,
-                            "use_steps": use_steps,
-                        },
-                        timeout=60,
-                    )
-                    data = response.json()
+            try:
+                response = requests.post(
+                    API_URL,
+                    json={
+                        "dish": dish.strip(),
+                        "people": people,
+                        "use_steps": use_steps,
+                    },
+                    timeout=FASTAPI_TIMEOUT,
+                )
 
-                    # AuthError — поле "message"
-                    if "message" in data:
-                        st.error(f"🔑 {data['message']}")
-                        break
+                response.raise_for_status()
 
-                    # Ошибки авторизации по HTTP-коду 401
-                    if response.status_code == 401:
-                        st.error("🔑 Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки.")
-                        break
+                data = response.json()
 
-                    response.raise_for_status()
+                if response.status_code != 200:
+                    error_detail = data.get("detail", "Неизвестная ошибка")
+                    st.error(error_detail)
 
-                    st.success("✅ Запрос выполнен успешно!")
+                st.success("✅ Запрос выполнен успешно!")
 
-                    st.markdown("### 🛒 Продукты")
-                    products = data.get("products", [])
-                    if products:
-                        for i, product in enumerate(products, 1):
-                            st.markdown(f"{i}. {product}")
-                    else:
-                        st.info("Продукты не найдены.")
+                st.markdown("### 🛒 Продукты")
+                products = data.get("products", [])
+                if products:
+                    for i, product in enumerate(products, 1):
+                        st.markdown(f"{i}. {product}")
+                else:
+                    st.info("Продукты не найдены.")
 
-                    steps = data.get("steps")
-                    if steps and use_steps:
-                        st.markdown("### 📝 Шаги приготовления")
-                        for i, step in enumerate(steps, 1):
-                            st.markdown(f"**Шаг {i}:** {step}")
+                steps = data.get("steps")
+                if steps and use_steps:
+                    st.markdown("### 📝 Шаги приготовления")
+                    for i, step in enumerate(steps, 1):
+                        st.markdown(f"**Шаг {i}:** {step}")
 
-                    break
-
-                except requests.exceptions.ConnectionError:
-                    st.error("❌ Не удалось подключиться к серверу. Убедитесь, что FastAPI запущен на порту 8000.")
-                    break
-                except requests.exceptions.Timeout:
-                    st.error("❌ Превышено время ожидания ответа от сервера.")
-                    break
-                except requests.exceptions.HTTPError as e:
-                    st.error(f"❌ Ошибка сервера: {e}")
-                    break
-                except Exception as e:
-                    st.error(f"❌ Произошла ошибка: {str(e)}")
-                    break
+            except requests.exceptions.ConnectionError:
+                st.error(
+                    "❌ Не удалось подключиться к серверу. "
+                    "Убедитесь, что FastAPI запущен на порту 8000."
+                )
+            except requests.exceptions.Timeout:
+                st.error("❌ Превышено время ожидания ответа от сервера.")
+            except requests.exceptions.HTTPError as e:
+                st.error(f"❌ Ошибка сервера: {e}")
+            except Exception as e:
+                st.error(f"❌ Произошла ошибка: {str(e)}")

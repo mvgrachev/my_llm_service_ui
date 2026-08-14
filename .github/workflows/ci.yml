@@ -27,11 +27,18 @@ jobs:
         run: pip install flake8
 
       - name: Run flake8
-        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,__pycache__,.git,.github
+        run: flake8 . --count --show-source --statistics --exclude=.venv,__pycache__,.git,.github
 
   test:
     name: Tests (test_chat.py)
     runs-on: ubuntu-latest
+    env:
+      YANDEX_CLOUD_FOLDER: test-folder-id
+      YANDEX_CLOUD_API_KEY: test-api-key
+      YANDEX_CLOUD_MODEL: deepseek-v4-flash/latest
+      YANDEX_CLOUD_BASE_URL: https://ai.api.cloud.yandex.net/v1
+      APP_ENV: test
+      REDIS_URL: redis://localhost:6379/0
     services:
       redis:
         image: redis:7
@@ -96,23 +103,13 @@ jobs:
           pip install -r requirements.txt
           pip install streamlit httpx
 
-      - name: Mock LLM client to avoid real API calls
+      - name: Start FastAPI server with mocked LLM
         run: |
-          cat > llm/__init__.py << 'PYEOF'
-          """Mock LLM client for CI."""
-          from unittest.mock import MagicMock
-          client = MagicMock()
-          client.generate.return_value = '{"products": ["test"], "steps": ["step1"]}'
-          PYEOF
-
-      - name: Start FastAPI server in background
-        run: |
-          python main.py &
+          python start_server.py &
           SERVER_PID=$!
           echo "FastAPI PID: $SERVER_PID"
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
 
-          # Wait for server to be ready (up to 30s)
           for i in $(seq 1 30); do
             if curl -s http://localhost:8000/health > /dev/null 2>&1; then
               echo "FastAPI is ready!"
@@ -132,9 +129,8 @@ jobs:
           echo "Streamlit PID: $STREAMLIT_PID"
           echo "STREAMLIT_PID=$STREAMLIT_PID" >> $GITHUB_ENV
 
-          # Wait for Streamlit to be ready (up to 30s)
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8501/healthz > /dev/null 2>&1; then
+            if curl -s http://localhost:8501/_stcore/health > /dev/null 2>&1; then
               echo "Streamlit is ready!"
               break
             fi
@@ -147,7 +143,6 @@ jobs:
 
       - name: Verify Streamlit UI is accessible
         run: |
-          # Check Streamlit main page
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8501/)
           echo "Streamlit main page HTTP code: $HTTP_CODE"
           if [ "$HTTP_CODE" != "200" ]; then
@@ -155,34 +150,28 @@ jobs:
             exit 1
           fi
 
-          # Check Streamlit health endpoint
-          HEALTH=$(curl -s http://localhost:8501/healthz)
+          HEALTH=$(curl -s http://localhost:8501/_stcore/health)
           echo "Streamlit health: $HEALTH"
 
-          # Check FastAPI is still running
           API_RESPONSE=$(curl -s http://localhost:8000/health)
           echo "FastAPI health: $API_RESPONSE"
 
       - name: Stop Streamlit and FastAPI servers
         if: always()
         run: |
-          # Stop Streamlit
           if command -v streamlit &> /dev/null && [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
             echo "Stopping Streamlit (PID: $STREAMLIT_PID)..."
             streamlit stop --server.port 8501 || true
             kill "$STREAMLIT_PID" 2>/dev/null || true
           fi
 
-          # Stop FastAPI
           if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
             echo "Stopping FastAPI (PID: $SERVER_PID)..."
             kill "$SERVER_PID" 2>/dev/null || true
           fi
 
-          # Wait for processes to terminate
           sleep 2
 
-          # Force kill if still running
           if [ -n "$STREAMLIT_PID" ] && kill -0 "$STREAMLIT_PID" 2>/dev/null; then
             echo "Force killing Streamlit..."
             kill -9 "$STREAMLIT_PID" 2>/dev/null || true
@@ -204,7 +193,7 @@ jobs:
             streamlit.log
 
   build:
-    name: Build artifacts
+    name: Build Python package
     runs-on: ubuntu-latest
     needs: [lint, test, streamlit]
     steps:
@@ -216,27 +205,148 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install build
 
-      - name: Create staging directory
-        run: mkdir -p staging
+      - name: Build Python package
+        run: python -m build
 
-      - name: Copy project files to staging
-        run: |
-          cp -r api config llm services cache main.py app.py __main__.py README.md staging/
-          cp requirements.txt staging/
-
-      - name: Create dist directory and tarball
-        run: |
-          mkdir -p dist
-          tar czf dist/package.tar.gz -C staging .
-
-      - name: Upload dist/ as artifact
+      - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dist-package
-          path: dist/
+          name: dist-wheel
+          path: dist/*.whl
           retention-days: 7
+
+      - name: Upload source distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+          retention-days: 7
+
+  docker-build:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build FastAPI image
+        run: |
+          docker build -t llm-service-api:ci .
+
+      - name: Build Streamlit image
+        run: |
+          docker build -f Dockerfile.streamlit -t llm-service-streamlit:ci .
+
+      - name: Validate FastAPI image can start
+        run: |
+          # Ensure Redis image is available (GitHub Actions services are not visible from nested docker run)
+          docker pull redis:7 --quiet 2>/dev/null || true
+          
+          # Start Redis container
+          docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
+
+          # Wait for Redis to be ready
+          for i in $(seq 1 10); do
+            if docker exec ci-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready!"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Redis failed to start"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Start FastAPI container with host network to reach Redis on 127.0.0.1
+          docker run --rm -d --name llm-test-api --network host \
+            -e APP_ENV=test \
+            -e YANDEX_CLOUD_FOLDER=test-folder-id \
+            -e YANDEX_CLOUD_API_KEY=test-api-key \
+            -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e YANDEX_CLOUD_BASE_URL=https://ai.api.cloud.yandex.net/v1 \
+            -e REDIS_URL=redis://127.0.0.1:6379/0 \
+            llm-service-api:ci
+
+          # Wait for FastAPI to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then
+              echo "FastAPI image health check passed!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "FastAPI image failed to become healthy within 30s"
+              docker logs llm-test-api
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker stop llm-test-api >/dev/null 2>&1 || true
+
+      - name: Validate Streamlit image can start
+        run: |
+          # Ensure Redis image is available (GitHub Actions services are not visible from nested docker run)
+          docker pull redis:7 --quiet 2>/dev/null || true
+          
+          # Ensure Redis is running
+          docker ps -q --filter "name=ci-redis" | grep -q . || \
+            docker run -d --name ci-redis -p 6379:6379 redis:7 --loglevel warning
+
+          # Start Streamlit container with host network
+          docker run --rm -d --name llm-test-streamlit --network host \
+            -e APP_ENV=test \
+            -e YANDEX_CLOUD_FOLDER=test-folder-id \
+            -e YANDEX_CLOUD_API_KEY=test-api-key \
+            -e YANDEX_CLOUD_MODEL=deepseek-v4-flash/latest \
+            -e YANDEX_CLOUD_BASE_URL=https://ai.api.cloud.yandex.net/v1 \
+            -e REDIS_URL=redis://127.0.0.1:6379/0 \
+            -e FASTAPI_URL=http://127.0.0.1:8000 \
+            llm-service-streamlit:ci
+
+          # Wait for Streamlit to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8501/_stcore/health > /dev/null 2>&1; then
+              echo "Streamlit image health check passed!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Streamlit image failed to become healthy within 30s"
+              docker logs llm-test-streamlit
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker stop llm-test-streamlit >/dev/null 2>&1 || true
+
+      - name: Inspect built images
+        run: |
+          echo "=== FastAPI image ==="
+          docker inspect llm-service-api:ci --format='Size: {{.Size}} bytes, Created: {{.Created}}'
+          docker history llm-service-api:ci --no-trunc
+
+          echo ""
+          echo "=== Streamlit image ==="
+          docker inspect llm-service-streamlit:ci --format='Size: {{.Size}} bytes, Created: {{.Created}}'
+          docker history llm-service-streamlit:ci --no-trunc
+
+          echo ""
+          echo "=== Image sizes ==="
+          docker images llm-service-api --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+          docker images llm-service-streamlit --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+
+      - name: Cleanup Docker containers
+        if: always()
+        run: |
+          docker stop llm-test-api llm-test-streamlit ci-redis >/dev/null 2>&1 || true
+          docker rm llm-test-api llm-test-streamlit ci-redis >/dev/null 2>&1 || true

@@ -1,56 +1,136 @@
 """Chat routing and endpoints."""
 
 from fastapi import APIRouter, HTTPException
-from typing import Union
-from api.models import ChatRequest, ChatResponse, AuthError
+import openai
+from api.models import ChatRequest, ChatResponse
 from services import chat_service
-import logging
+from services.chat import EmptyResponse, InvalidResponseFormat
+from config.logging_config import get_logger
 
-logger = logging.getLogger('llm_service.routes')
+logger = get_logger('llm_service.routes')
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-AUTH_ERROR_MSG = "Ошибка авторизации: недействительный или истёкший API-ключ. Пожалуйста, проверьте настройки."
-
-
-def _is_auth_error(error_str: str) -> bool:
+def _is_auth_error(error: BaseException) -> bool:
     """Check if the error is an authentication/API-key failure."""
-    lower = error_str.lower()
-    return any(
-        marker in lower
-        for marker in [
-            "unauthenticated",
-            "unknown api key",
-            "invalid api key",
-            "unauthorized",
-            "api key not found",
-            "api key invalid",
-            "invalid_api_key",
-            "unauthorized_error",
-        ]
-    )
+    return isinstance(error, openai.AuthenticationError)
 
 
-@router.post("", response_model=Union[ChatResponse, AuthError])
-async def chat_endpoint(request: ChatRequest):
+@router.post("", response_model=ChatResponse)
+def chat_endpoint(request: ChatRequest):
     """
     Process chat message and return response from LLM.
-    
+
     Args:
         request: ChatRequest with message field
-        
+
     Returns:
-        ChatResponse with products and steps, or AuthError if API key is invalid
+        ChatResponse with products and steps,
+        or exceptions
     """
     try:
+        logger.info("Chat request received", extra={
+            "event": "chat.request",
+            "source": "routes",
+            "dish": request.dish,
+            "people": request.people,
+            "use_steps": request.use_steps,
+        })
         response = chat_service.process_request(request)
+        logger.info("Chat request completed", extra={
+            "event": "chat.response",
+            "source": "routes",
+            "products_count": len(response.products),
+            "steps_count": len(response.steps) if response.steps else 0,
+        })
         return response
+    except EmptyResponse:
+        logger.warning("Empty response from LLM", extra={
+            "event": "chat.empty_response",
+            "source": "routes",
+            "dish": request.dish,
+        })
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "LLM вернул пустой ответ. "
+                "Попробуйте изменить запрос."
+            )
+        )
+    except InvalidResponseFormat:
+        logger.warning("Invalid response format from LLM", extra={
+            "event": "chat.invalid_format",
+            "source": "routes",
+            "dish": request.dish,
+        })
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Не удалось обработать ответ от LLM. "
+                "Попробуйте позже."
+            )
+        )
     except Exception as e:
-        error_str = str(e)
-        logger.error(f"Error in chat endpoint: {error_str}")
+        logger.error("Error in chat endpoint", extra={
+            "event": "chat.error",
+            "source": "routes",
+            "error": str(e),
+        })
 
-        if _is_auth_error(error_str):
-            return AuthError(message=AUTH_ERROR_MSG)
-
-        raise HTTPException(status_code=500, detail=f"Internal server error: {error_str}")
+        if isinstance(e, openai.APITimeoutError):
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Время ожидания ответа истекло. "
+                    "Пожалуйста, попробуйте позже."
+                )
+            )
+        elif isinstance(e, openai.APIConnectionError):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Сервис временно недоступен. "
+                    "Попробуйте позже "
+                    "или обратитесь в техподдержку."
+                )
+            )
+        elif isinstance(
+            e,
+            (
+                openai.AuthenticationError,
+                openai.PermissionDeniedError
+            )
+        ):
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=(
+                    "Ошибка авторизации: "
+                    "недействительный или истёкший API-ключ. "
+                    "Пожалуйста, проверьте настройки."
+                )
+            )
+        elif isinstance(e, openai.RateLimitError):
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=(
+                    "Превышена частота обращения к сервису. "
+                    "Пожалуйста, попробуйте позже."
+                )
+            )
+        elif isinstance(e, openai.InternalServerError):
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=(
+                    "Ошибка LLM. "
+                    "Пожалуйста, попробуйте позже."
+                )
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Непредвиденная ошибка. "
+                    "Попробуйте позже или обратитесь в техподдержку."
+                )
+            )
