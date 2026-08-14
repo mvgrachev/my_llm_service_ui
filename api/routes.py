@@ -1,9 +1,8 @@
 """Chat routing and endpoints."""
 
 from fastapi import APIRouter, HTTPException
-from typing import Union
 import openai
-from api.models import ChatRequest, ChatResponse, AuthError
+from api.models import ChatRequest, ChatResponse
 from services import chat_service
 from services.chat import EmptyResponse, InvalidResponseFormat
 from config.logging_config import get_logger
@@ -18,7 +17,7 @@ def _is_auth_error(error: BaseException) -> bool:
     return isinstance(error, openai.AuthenticationError)
 
 
-@router.post("", response_model=Union[ChatResponse, AuthError])
+@router.post("", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
     """
     Process chat message and return response from LLM.
@@ -28,7 +27,7 @@ def chat_endpoint(request: ChatRequest):
 
     Returns:
         ChatResponse with products and steps,
-        or AuthError if API key is invalid
+        or exceptions
     """
     try:
         logger.info("Chat request received", extra={

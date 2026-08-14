@@ -33,9 +33,3 @@ class ChatResponse(BaseModel):
         default=None,
         description="Список шагов приготовления"
     )
-
-
-class AuthError(BaseModel):
-    """Response model for authentication errors."""
-
-    message: str = Field(..., description="Сообщение об ошибке авторизации")
